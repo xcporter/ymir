@@ -1,0 +1,31 @@
+
+out_file='flash.bin'
+i_flag=false
+
+ARDUINO_UPLOAD_PORT="$(find /dev/cu.usbmodem* | head -n 1)"
+
+help() {
+  printf "options:\n\t-o : Outfile: for specifying file name\n\t-i : Info: just read fuse and board info\n"
+}
+
+while getopts 'o:i' flag; do
+  case "${flag}" in 
+    o) out_file="${OPTARG}" ;;
+    i) i_flag=true ;;
+    *) help
+      exit 1;;
+  esac
+done
+
+stty -f "${ARDUINO_UPLOAD_PORT}" 1200
+
+while :; do
+  sleep 0.5
+  [ -c "${ARDUINO_UPLOAD_PORT}" ] && break
+done
+
+
+if $i_flag 
+then /Users/poralexc/Library/Arduino15/packages/arduino/tools/avrdude/6.3.0-arduino17/bin/avrdude -C/Users/poralexc/Library/Arduino15/packages/arduino/tools/avrdude/6.3.0-arduino17/etc/avrdude.conf -v -patmega4809 -cjtag2updi -P$ARDUINO_UPLOAD_PORT -b115200 -v
+else /Users/poralexc/Library/Arduino15/packages/arduino/tools/avrdude/6.3.0-arduino17/bin/avrdude -C/Users/poralexc/Library/Arduino15/packages/arduino/tools/avrdude/6.3.0-arduino17/etc/avrdude.conf -v -patmega4809 -cjtag2updi -P$ARDUINO_UPLOAD_PORT -b115200 -U flash:r:$out_file:r
+fi

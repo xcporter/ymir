@@ -1,0 +1,16 @@
+# Find the Arduino port
+ARDUINO_UPLOAD_PORT="$(find /dev/cu.usbmodem* | head -n 1)"
+
+# connect at low baud to engage programmer
+stty -f "${ARDUINO_UPLOAD_PORT}" 1200
+
+# wait till device connects
+while :
+do
+  sleep 0.5
+  [ -c "${ARDUINO_UPLOAD_PORT}" ] && break
+done
+
+# upload
+/Users/poralexc/Library/Arduino15/packages/arduino/tools/avrdude/6.3.0-arduino17/bin/avrdude -C/Users/poralexc/Library/Arduino15/packages/arduino/tools/avrdude/6.3.0-arduino17/etc/avrdude.conf -v -patmega4809 -cjtag2updi -P$ARDUINO_UPLOAD_PORT -b115200 -e -D -Uflash:w:$1:i
+
