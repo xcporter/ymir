@@ -29,7 +29,7 @@ Set base
 ## `dup`
 ( a -- a a )
 ## `2dup`
-( a b -- a b )
+( a b -- a b a b )
 ## `over`
 ( a b -- a b a )
 ## `rot`
@@ -37,10 +37,15 @@ Set base
 ## `-rot`
 ( a b c -- c a b )
 ## `>r`
+pop to return stack
 ## `r>`
+push from return stack
 ## `@r`
+fetch from return stack
 ## `!r`
+store to return stack
 ## `rdrop`
+drop from return stack
 ## `++`
 increment
 ## `--`
