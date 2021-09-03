@@ -26,6 +26,6 @@ done
 
 
 if $i_flag 
-then /Users/poralexc/Library/Arduino15/packages/arduino/tools/avrdude/6.3.0-arduino17/bin/avrdude -C/Users/poralexc/Library/Arduino15/packages/arduino/tools/avrdude/6.3.0-arduino17/etc/avrdude.conf -v -patmega4809 -cjtag2updi -P$ARDUINO_UPLOAD_PORT -b115200 -v
-else /Users/poralexc/Library/Arduino15/packages/arduino/tools/avrdude/6.3.0-arduino17/bin/avrdude -C/Users/poralexc/Library/Arduino15/packages/arduino/tools/avrdude/6.3.0-arduino17/etc/avrdude.conf -v -patmega4809 -cjtag2updi -P$ARDUINO_UPLOAD_PORT -b115200 -U flash:r:$out_file:r
+then ~/Library/Arduino15/packages/arduino/tools/avrdude/6.3.0-arduino17/bin/avrdude -C/Users/poralexc/Library/Arduino15/packages/arduino/tools/avrdude/6.3.0-arduino17/etc/avrdude.conf -v -patmega4809 -cjtag2updi -P$ARDUINO_UPLOAD_PORT -b115200 -v
+else ~/Library/Arduino15/packages/arduino/tools/avrdude/6.3.0-arduino17/bin/avrdude -C/Users/poralexc/Library/Arduino15/packages/arduino/tools/avrdude/6.3.0-arduino17/etc/avrdude.conf -v -patmega4809 -cjtag2updi -P$ARDUINO_UPLOAD_PORT -b115200 -U flash:r:$out_file:r
 fi
