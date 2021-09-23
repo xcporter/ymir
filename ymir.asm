@@ -32,6 +32,7 @@
         .def        BWH = r13
         .def        zeroR = r10, 
         .def        oneR = r11
+
 ;; Word Structure ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ;   | Link Address | Name Length | Name | Flag | Definition | 0xPadding
 ;   | 2 B          | 1 B         | n B  | 1 B  | n B        | n B
@@ -54,11 +55,13 @@
 ;; RAM layout: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ;  start:| System | Buffer | P stack >|< Ram Dictionary |< R stack |:end
 ;        | 256 B  | 2kB    | 512 B    |  3.2kB          | 512 B    |
-;                /          \____________
-;               | s_buffer>   <in_buffer |
+;                /          \________________________
+;               | pad 256B | w_buffer >|< in_buffer  |
 
         .equ        p_stack_start = buffer_start + buffer_size
+        .equ        w_buffer_start = buffer_start + 0x100
         .equ        dict_start = RAMEND - r_stack_max
+
 ;; Setup ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         .cseg
         .org    0x0000
@@ -74,14 +77,11 @@
 
         setup_usb
         call    setup_data_seg
-        call    reset_in_buffer
-        call    reset_s_buffer
         call    reset_p
 
 ;;  Start ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-        ldi     YL, Low(main+2)
-        ldi     YH, High(main+2)
+        ldi     YL, Low(main)
+        ldi     YH, High(main)
         rjmp    next
 
 ;; Terminal Core ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -114,7 +114,7 @@ def_asm         "execute", 7, $0, execute
           
 def_asm         "exit", 4, $0, exit
         rjmp    done
-;t
+
 def_asm         "lit", 3, $0, literal           ; Retrieve next as num and put on P-stack
         ldi     r18, 0x40
         lsl     YL
@@ -134,7 +134,7 @@ def_asm         "reset", 5, $0, reset
         out     CPU_SPL, r16
         out     CPU_SPH, r17
         call    reset_in_buffer
-        call    reset_s_buffer
+        call    reset_w_buffer
         rjmp    next
     
 ;; System Constants --------------
@@ -145,10 +145,13 @@ def_asm         "&r", 2, $0, r_stack_pt
         in      r17, CPU_SPL
         p_push_word     r16, r17
         jmp     next
+
 def_const       "p0", 2, $0, p_start, p_stack_start
+
 def_asm         "&p", 2, $0, p_stack_pt
         p_push_word     XL, XH
         jmp     next
+
 def_asm         "@base", 5, $0, get_base      ; put base on stack
         in      r16, base_r
         p_push  r16
@@ -158,13 +161,11 @@ def_asm         "base", 4, $0, set_base
         p_pop   r16
         out     base_r, r16
         jmp     next
-def_const       "pad0", 4, $0, pad_start, buffer_start
-def_asm         "padclr", 6, $0, reset_pad
-        call    reset_s_buffer
-        jmp     next
-def_asm         "&pad", 4, $0, pad_pt
-        p_push_word  WL, WH
-        jmp     next
+
+def_const       "pad", 4, $0, pad_start, buffer_start
+
+def_const       "buffer", 6, $0, buffer, w_buffer_start
+
 ;; Stack Ops ---------------------
 ;       Parameter
 def_asm         "drop", 4, $0, drop
@@ -174,6 +175,7 @@ def_asm         "drop", 4, $0, drop
 def_asm         "2drop", 5, $0, drop_two
         sbiw    XL, 0x04
         jmp     next
+
 def_asm         "swap", 4, $0, swap
         p_pop_word      r16, r17
         p_pop_word      r18, r19 
@@ -191,6 +193,7 @@ def_asm         "2swap", 5, $0, swap_two
         p_push_word     r4, r5
         p_push_word     r6, r7 
         jmp     next
+
 def_asm         "dup", 3, $0, dup
         p_pop_word      r16, r17
         p_push_word     r16, r17
@@ -205,12 +208,14 @@ def_asm         "2dup", 4, $0, dup_two
         p_push_word     r18, r19
         p_push_word     r16, r17
         jmp     next
+
 def_asm         "over", 4, $0, over
         sbiw    XL, 0x02
         p_pop_word      r16, r17
         adiw    XL, 0x04 
         p_push_word      r16, r17
         jmp     next
+
 def_asm         "rot", 3, $0, rot
         p_pop_word      r16, r17
         p_pop_word      r18, r19
@@ -235,6 +240,7 @@ def_asm         ">r", 2, $0, to_r
         push    r17
         push    r16
         jmp     next
+
 def_asm         "r>", 2, $0, from_r
         pop     r16
         pop     r17
@@ -260,12 +266,12 @@ def_asm         "!r", 2, $0, store_r
         out     SPL, ZL             ; put back the pointer
         out     SPH, ZH
         jmp     next
+
 def_asm         "rdrop", 5, $0, r_drop
         pop     r16
         pop     r16
         jmp     next
 
-;t
 def_word         ".s", 2, $0, print_p_stack
         .dw     sp 
         .dw     literal         ; " <"
@@ -306,7 +312,6 @@ def_word         ".s", 2, $0, print_p_stack
         .dw     drop_two
         .dw     exit
 
-;t
 def_word        "pick", 4, $0, pick   ; (stack index 0=bottom, n=top)
         .dw     literal 
         .dw     0x0001
@@ -323,6 +328,7 @@ def_asm         "++", 2, $0, incr
         adc     r17, zeroR
         p_push_word   r16, r17
         jmp     next
+
 def_asm         "--", 2, $0, decr
         p_pop_word    r16, r17
         sub     r16, oneR
@@ -330,7 +336,6 @@ def_asm         "--", 2, $0, decr
         p_push_word   r16, r17
         jmp     next
 
-;t
 def_asm         "+", 1, $0, addition
         p_pop_word    r16, r17
         p_pop_word    r18, r19
@@ -338,7 +343,7 @@ def_asm         "+", 1, $0, addition
         adc     r17, r19
         p_push_word   r16, r17
         jmp     next
-;t
+
 def_asm         "-", 1, $0, subtraction
         p_pop_word    r18, r19
         p_pop_word    r16, r17
@@ -346,6 +351,7 @@ def_asm         "-", 1, $0, subtraction
         sbc     r17, r19
         p_push_word   r16, r17
         jmp     next
+
 def_asm         "*", 1, $0, multiplication
         p_pop_word    r16, r17
         p_pop_word    r18, r19
@@ -382,7 +388,6 @@ _multiplication:
 
         ret
 
-;t
 def_asm         "/mod", 4, $0, div_mod  ; (dividend, divisor -- quotient, remainder)
         p_pop_word   r16, r17           ; divisor (factor)
         p_pop_word   r22, r23           ; dividend (num being divided)
@@ -431,7 +436,6 @@ _division:
         ret
 
 ;; Comparison --------------------
-
 _do_compare:
         p_pop_word  r16, r17
         p_pop_word  r18, r19
@@ -443,14 +447,17 @@ def_asm         "==", 2, $0, equal
         rcall   _do_compare
         breq    _true
         rjmp    _false
+
 def_asm         "!=", 2, $0, not_equal
         rcall   _do_compare
         brne    _true
         rjmp    _false
+
 def_asm         "<", 1, $0, less
         rcall   _do_compare
         brlt    _true
         rjmp    _false
+
 def_asm         ">", 1, $0, greater
         p_pop_word  r16, r17
         p_pop_word  r18, r19
@@ -460,6 +467,7 @@ def_asm         ">", 1, $0, greater
         cpc     r17, r19
         brge    _true
         rjmp    _false
+
 def_asm         "<=", 2, $0, less_eq
         p_pop_word  r16, r17
         p_pop_word  r18, r19
@@ -469,10 +477,12 @@ def_asm         "<=", 2, $0, less_eq
         cpc     r17, r19
         brlt    _true
         rjmp    _false
+
 def_asm         ">=", 2, $0, greater_eq
         rcall   _do_compare
         brge    _true
         rjmp    _false
+
 def_asm         "?0", 2, $0, is_zero
         p_pop_word  r16, r17
         clr     r18
@@ -491,12 +501,14 @@ _true:
 _false:
         p_push  zeroR
         jmp     next
+
 def_asm         "!0", 2, $0, is_not_zero
         p_pop_word  r16, r17
         cp      r16, zeroR
         cpc     r17, zeroR
         brne    _true
         rjmp    _false
+
 def_asm         "-0", 2, $0, less_zero
         p_pop_word  r16, r17
         cp      r16, zeroR
@@ -512,6 +524,7 @@ def_asm         "||", 2, $0, b_or
         or          r17, r19
         p_push_word r16, r17
         jmp     next
+
 def_asm         "&&", 2, $0, b_and
         p_pop_word  r16, r17
         p_pop_word  r18, r19
@@ -519,6 +532,7 @@ def_asm         "&&", 2, $0, b_and
         and         r17, r19
         p_push_word r16, r17
         jmp     next
+
 def_asm         "^", 1, $0, b_xor
         p_pop_word  r16, r17
         p_pop_word  r18, r19
@@ -526,7 +540,7 @@ def_asm         "^", 1, $0, b_xor
         eor         r17, r19
         p_push_word r16, r17
         jmp     next
-;t
+
 def_asm         "<<", 2, $0, b_shl
     p_pop_word  r18, r19
     p_pop_word  r16, r17
@@ -542,7 +556,7 @@ def_asm         "<<", 2, $0, b_shl
     shift_end:
         p_push_word r16, r17
         jmp     next
-;t
+
 def_asm         ">>", 2, $0, b_shr  ;(num to shift, shift x times)
         p_pop_word  r18, r19    
         p_pop_word  r16, r17
@@ -578,7 +592,6 @@ def_asm         "@", 1, $0, fetch
         ld      r17, Z+
         ld      r16, Z+
         p_push_word  r16, r17       ; put value on p_stack
-        
         jmp     next
 
 def_asm         "@+", 2, $0, fetch_inc ; (addr -- next_addr, value)
@@ -587,10 +600,16 @@ def_asm         "@+", 2, $0, fetch_inc ; (addr -- next_addr, value)
         ld      r16, Z+
         p_push_word  ZL, ZH     
         p_push_word  r16, r17       ; put value on p_stack
-        
         jmp     next
+
+def_word        "move", 4, $0, move     ; ( from_addr, to_addr, length -- )
+        .dw     dup 
+        .dw     branch_if 
+        .dw     0x0000          ; end if zero
+        
+        .dw     exit
+
 ;; String Ops --------------------
-;t
 def_asm         "litstring", 9, $0, litstring
         ldi     r18, 0x40       ; addr to global space
         lsl     YL
@@ -612,7 +631,7 @@ def_asm         "litstring", 9, $0, litstring
         adc     YH, r17
 
         jmp    next 
-;t
+
 def_asm         "print", 5, $0, print
         p_pop   r18                 ; load length from stack
         p_pop_word  ZL, ZH          ; load address word from stack
@@ -629,7 +648,6 @@ def_asm         "print", 5, $0, print
 
 
 ;; Branching ---------------------
-;t
 def_asm         "branch", 6, $0, branch
         ldi     r18, 0x40
         lsl     YL              ; load jump offset into r[16:17]
@@ -645,7 +663,6 @@ def_asm         "branch", 6, $0, branch
         adc     YH, r17
         jmp     next
 
-;t
 def_asm         "?branch", 7, $0, branch_if
         p_pop   r16
         ldi     r17, 0x00
@@ -657,8 +674,6 @@ def_asm         "?branch", 7, $0, branch_if
         jmp     next
 
 ;; I/O ---------------------------
-
-;t
 def_asm         "key", 3, $0, key       ; pop next char off in buffer
         mov     ZL, BRL 
         mov     ZH, BRH
@@ -677,15 +692,14 @@ key_empty:
         p_push  r16
         jmp     next
 
-;t
 def_asm         "emit", 4, $0, emit
         p_pop   r16                 ; load char from stack
         call    usb_tx_wait
         sts     USART3_TXDATAL, r16 
         jmp     next
-;t
+
 def_asm         "word", 4, $0, word
-        call    reset_s_buffer
+        call    reset_w_buffer
         clr     r18                    ; r18: length counter 
         mov     ZL, BRL                ; load in read pointer
         mov     ZH, BRH
@@ -718,13 +732,14 @@ def_asm         "word", 4, $0, word
 
         rjmp    word_2
     word_result:
-        call    push_s_start
+        call    push_w_start
         p_push  r18
         jmp     next
     word_empty:
         ldi     r16, 0x00
         p_push  r16
         jmp     next
+
 
 def_asm         ">char", 5, $0, to_char
         p_pop   r16
@@ -757,7 +772,6 @@ def_asm         "char>", 5, $0, from_char
         ldi     r17, 0x27
         sub     r16, r17
         ret
-        
         
 ;| r[8:9]          accumulator
 ;| r2              error 
@@ -857,7 +871,6 @@ def_asm         "$>#", 3, $0, string_to_num
     _stn_overflow:              ; overflow error
         inc     r2
         rjmp    _stn_2
-        
 
 def_asm         "#>$", 3, $0, num_to_string
         clr     r0              ; length counter
@@ -892,8 +905,8 @@ def_asm         "#>$", 3, $0, num_to_string
         push    r19           
         push    r18
         mov     r18, r0
-        call    reset_s_buffer
-        movw    ZL, WL
+        ldi     ZL, Low(buffer_start)
+        ldi     ZH, High(buffer_start)
         cpse    r4, zeroR
         rcall   _nts_do_sign
     _nts_write_loop:                            ; pop results and write (to reverse)
@@ -920,7 +933,6 @@ def_asm         "#>$", 3, $0, num_to_string
         ret
 
 ;; Dictionary Ops ----------------
-
 _skip_word_name:
         push    r3
         sbrs    r3, 0         ; deal with byte padding for things that take up odd numbers of space
@@ -1032,6 +1044,7 @@ def_asm         "find", 4, $0, find
     find_not_found:
         p_push  zeroR
         jmp     next
+
 def_asm         ">xt", 3, $0, to_xt
         p_pop_word    r16, r17          ; get address from stack
         mov     ZL, r16                 ; load into Z                                                          
@@ -1057,12 +1070,13 @@ def_asm         ">xt", 3, $0, to_xt
 ; def_asm         "hidden", 6, $0, hidden
 ; def_asm         0x27, 1, $0, get_xt 
 ;; Interpreting ------------------
-def_word        "quit", 4, $0, main               ; Main system loop
-        .dw     reset
-        .dw     accept
-        .dw     interpret
-        .dw     branch
-        .dw     0xfffd                          ; -3
+def_asm        "quit", 4, $0, main               ; Main system loop
+        .dw     reset                            ;   Notice that it's defined as asm despite being a 
+        .dw     accept                           ;   forth word. There is no call to 'do' included, 
+        .dw     interpret                        ;   since as the outer loop it doesn't really need 
+        .dw     branch                           ;   to put anything on the return stack
+        .dw     0xfffd                           ; -3
+
 def_asm         "accept", 6, $0, accept         ; read from tty into buffer until cr
         mov     ZL, BWL
         mov     ZH, BWH
@@ -1167,6 +1181,7 @@ def_word         "clear", 5, $0, clear
         .db     0x0e, 0x1b, "[2J", 0x1b, "[20A", 0x1b, "[20D"
         .dw     print
         .dw     main
+
 def_word        "ok", 2, $0, ok
         .dw     litstring
         .db     3," ok"
@@ -1243,9 +1258,9 @@ setup_data_seg:
         
         ret
 
-reset_s_buffer:
-        ldi     WL, Low(buffer_start)
-        ldi     WH, High(buffer_start)
+reset_w_buffer:
+        ldi     WL, Low(buffer_start + 0x100)
+        ldi     WH, High(buffer_start + 0x100)
         ret
 reset_in_buffer:
         ldi     r16, Low(p_stack_start - 0x02)
@@ -1257,9 +1272,9 @@ reset_in_buffer:
 
         ret
 
-push_s_start:
-        ldi     r16, Low(buffer_start)
-        ldi     r17, High(buffer_start)
+push_w_start:
+        ldi     r16, Low(w_buffer_start)
+        ldi     r17, High(w_buffer_start)
         p_push_word     r16, r17
         ret
 
