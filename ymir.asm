@@ -41,16 +41,19 @@
 ;   |f_immediate | f_hidden | f_in_ram | 0b | 0b | 0b | 0b | 0b |
 
 ;;  IO Registers ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-;       State: | reverse | in_buffer_reset | 0b | 0b | 0b | 0b | 0b | compile |
+;       State: | 0b | 0b | 0b | 0b | 0b | 0b | 0b | compile |
         .equ        state           = GPIO_GPIOR0
+
         .equ        base_r          = GPIO_GPIOR1
+
+        .equ        coroutine_pt    = GPIO_GPIOR2
+
+;       Number format: | sign [default true] | 0b | 0b | padding [5:0] |
+        .equ        num_format      = GPIO_GPIOR3 
+
 
 ;;  System Memory ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ;   0x00 : prog_latest | ram_latest | prog_here | ram_here | 0x00
-        .equ        prog_latest_pt  = SRAM_START 
-        .equ        ram_latest_pt   = SRAM_START + 0x2  
-        .equ        prog_here_pt  = SRAM_START + 0x4
-        .equ        ram_here_pt   = SRAM_START + 0x6
 
 ;; RAM layout: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ;  start:| System | Buffer | P stack >|< Ram Dictionary |< R stack |:end
@@ -61,6 +64,30 @@
         .equ        p_stack_start = buffer_start + buffer_size
         .equ        w_buffer_start = buffer_start + 0x100
         .equ        dict_start = RAMEND - r_stack_max
+
+;;  System Memory ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+;               Default system values in eeprom
+        .eseg
+        .org    0x0000
+
+    prog_latest:
+        .dw     word_link               
+    ram_latest:
+        .dw     dict_start              
+    prog_here_e:
+        .dw     prog_here              
+    ram_here:
+        .dw     dict_start              
+    default_base:
+        .dw     0x000A   
+
+        .dw     0x0000
+; Access pointers ----------------
+        .equ        prog_latest_pt = prog_latest + SRAM_START
+        .equ        ram_latest_pt = ram_latest + SRAM_START
+        .equ        prog_here_pt = prog_here_e + SRAM_START
+        .equ        ram_here_pt = ram_here + SRAM_START
+        .equ        default_base_pt = default_base + SRAM_START
 
 ;; Setup ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         .cseg
@@ -76,8 +103,10 @@
         mov     oneR, r16
 
         setup_usb
-        call    setup_data_seg
+        call    load_data_seg
         call    reset_p
+        call    reset_sysreg
+        
 
 ;;  Start ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         ldi     YL, Low(main)
@@ -137,7 +166,7 @@ def_asm         "reset", 5, $0, reset
         call    reset_w_buffer
         rjmp    next
     
-;; System Constants --------------
+;; System Constants and Ops ------
 def_const       "r0", 2, $0, r_stack_zero, RAMEND
 
 def_asm         "&r", 2, $0, r_stack_pt
@@ -152,14 +181,50 @@ def_asm         "&p", 2, $0, p_stack_pt
         p_push_word     XL, XH
         jmp     next
 
-def_asm         "@base", 5, $0, get_base      ; put base on stack
+def_asm         "base!", 4, $0, set_base      
+        p_pop   r16
+        out     base_r, r16
+        jmp     next
+
+def_asm         "base@", 4, $0, get_base      
         in      r16, base_r
         p_push  r16
         jmp     next
 
-def_asm         "base", 4, $0, set_base      
-        p_pop   r16
-        out     base_r, r16
+def_word        "hex", 3, $0, to_hex
+        .dw     literal
+        .dw     0x0010
+        .dw     set_base
+        .dw     exit
+
+def_word        "dec", 3, $0, to_dec
+        .dw     literal
+        .dw     0x000A
+        .dw     set_base
+        .dw     exit
+
+def_word        "bin", 3, $0, to_bin
+        .dw     literal
+        .dw     0x0002
+        .dw     set_base
+        .dw     exit
+
+def_asm         "sign", 4, $0, sign
+        sbi     num_format, 7
+        jmp     next
+def_asm         "unsign", 6, $0, unsign
+        cbi     num_format, 7
+        jmp     next
+
+; (digits --) set length constant for how nums are displayed
+; numbers that exceed the digit size are unaffected
+; smaller numbers are padded with zeros
+def_asm         "digits", 6, $0, digits 
+        p_pop   r17
+        in      r16, num_format
+        andi    r16, 0b11100000         ; clear last fmt
+        or      r17, r16                ; add mask to new digit value
+        out     num_format, r17
         jmp     next
 
 def_const       "pad", 4, $0, pad_start, buffer_start
@@ -387,6 +452,68 @@ _multiplication:
         adc     r23, zeroR
 
         ret
+
+def_asm         "exp", 3, $0, exponent ; (base, exponent[8 bit] -- result )
+        p_pop_word      r18, r19       ; exponent
+        p_pop_word      r16, r17       ; base    
+        rcall           _exponent
+        cp      r22, zeroR
+        cpc     r23, zeroR
+        breq    exp_skip_upper
+        p_push_word     r22, r23
+    exp_skip_upper:
+        p_push_word     r20, r21
+        jmp     next
+
+
+
+;| r[22:23]     result high  
+;| r[20:21]     result low
+;| r[18:19]     exponent
+;| r[16:17]     base
+_exponent:
+        clr     r20
+        clr     r21 
+        movw    r22, r20
+        cp      r18, zeroR              ; return 1 if zero
+        cpc     r19, zeroR 
+        breq    exp_zero
+        cp      r18, oneR              ; return base if one
+        cpc     r19, oneR
+        breq    exp_one
+
+    exp_loop:
+        cp      r18, zeroR
+        cpc     r19, zeroR
+        breq    exp_end
+        
+        mul     r17, r17                ; mul high
+        movw    r22, r0
+
+        mul     r16, r16                ; mul low
+        movw    r20, r0
+
+        mul     r16, r17                ; multiply cross 
+        lsl     r0                      ; Double since both cross products are the same
+        rol     r1
+        add     r21, r0
+        adc     r22, r1
+        adc     r23, zeroR
+
+        sub     r18, oneR               ; decrement
+        sbc     r19, zeroR
+
+        rjmp    exp_loop
+
+    exp_end:
+        ret
+    exp_zero: 
+        inc     r20
+        ret
+    exp_one:
+        movw    r20, r16
+        ret
+
 
 def_asm         "/mod", 4, $0, div_mod  ; (dividend, divisor -- quotient, remainder)
         p_pop_word   r16, r17           ; divisor (factor)
@@ -781,7 +908,7 @@ def_asm         "char>", 5, $0, from_char
 ;| r5              exponent
 ;| r7              exp counter
 
-def_asm         "$>#", 3, $0, string_to_num
+def_asm         ">num", 4, $0, string_to_num
         p_pop           r4              ; length
         p_pop_word      r16, r17        ; address
         clr             r3              ; sign    
@@ -872,21 +999,26 @@ def_asm         "$>#", 3, $0, string_to_num
         inc     r2
         rjmp    _stn_2
 
-def_asm         "#>$", 3, $0, num_to_string
-        clr     r0              ; length counter
-        clr     r4              ; sign 
-        p_pop_word   r22, r23   ; load dividend from stack
-        sbrc    r23, 7
-        rcall   _nts_sign       ; add negative sign if msb set
-        in      r16, base_r     ; load divisor (base)
+
+;|      r0 length counter
+def_asm         "num>", 4, $0, num_to_string
+        clr     r0                              ; length counter [r0]
+        ldi     ZL, Low(buffer_start)           ; load pad address into Z
+        ldi     ZH, High(buffer_start)
+        p_pop_word   r22, r23                   ; load num from stack
+        in      r18, num_format 
+        sbrc    r18, 7                          ; if using signed numbers, do sign
+        rcall    _nts_sign
+        in      r16, base_r                     ; load divisor (base)
         clr     r17
-    _nts_loop:
+
+     _nts_loop:
         call    _division
 
         cp      r20, zeroR      ; is quotient zero?
         cpc     r21, zeroR
-        breq    _nts_write
-        
+        breq    _nts_write      ; break to write
+
         inc     r0
         push    r19             ; temporarily keep remainders on return stack
         push    r18
@@ -894,43 +1026,63 @@ def_asm         "#>$", 3, $0, num_to_string
         mov     r23, r21
         rjmp    _nts_loop
 
-    _nts_done:
-        ldi     ZL, Low(buffer_start)           ; put string addr / length on stack
-        ldi     ZH, High(buffer_start)
-        p_push_word     ZL, ZH
-        p_push          r0
-        jmp     next
-    _nts_write:
+
+     _nts_write:
         inc     r0                              ; push last remainder
         push    r19           
         push    r18
-        mov     r18, r0
-        ldi     ZL, Low(buffer_start)
-        ldi     ZH, High(buffer_start)
-        cpse    r4, zeroR
-        rcall   _nts_do_sign
-    _nts_write_loop:                            ; pop results and write (to reverse)
-        cp      r18, zeroR
-        breq    _nts_done
-        dec     r18
-        pop     r16
-        pop     r1
+        mov     r1, r0                          ; copy length
+        rjmp    _nts_format
+
+     _nts_write_loop:
+        cp      r0, zeroR
+        breq    _nts_done                       ; break when length counter zero
+        dec     r0
+
+        pop     r16                             ; load next rem
+        pop     r2                              ; discard high byte
         call    _to_char
         st      Z+, r16
-        rjmp    _nts_write_loop  
+        rjmp    _nts_write_loop
 
     _nts_sign:
-        com     r22
-        com     r23
-        add     r22, oneR 
-        adc     r23, zeroR
-        inc     r4
-        inc     r0
+        sbrc    r23, 7
+        rjmp    _do_nts_sign
         ret
-    _nts_do_sign:
+    _do_nts_sign:
+        inc     r0
+        com     r23 
+        neg     r22 
         ldi     r16, '-'
         st      Z+, r16
         ret
+
+    _nts_format:
+        in      r16, num_format 
+        andi    r16, 0b00011111         ; clear flags
+        cp      r16, r1                 ; break if number larger than fmt
+        brlt    _nts_skip_format 
+        mov     r0, r16
+        sub     r0, r1                  ; get amount to pad
+        add     r1, r0                  ; adjust length
+    _nts_format_loop:
+        cp      r0, zeroR
+        breq    _nts_skip_format
+        dec     r0
+        push    zeroR
+        push    zeroR
+        rjmp    _nts_format_loop
+
+    _nts_skip_format:
+        mov     r0, r1                  ; put back counter for write
+        rjmp    _nts_write_loop
+    _nts_done:   
+        ldi     ZL, Low(buffer_start)           ; put string addr / length on stack
+        ldi     ZH, High(buffer_start)
+        p_push_word     ZL, ZH
+        p_push          r1
+        jmp     next
+        
 
 ;; Dictionary Ops ----------------
 _skip_word_name:
@@ -1059,6 +1211,7 @@ def_asm         ">xt", 3, $0, to_xt
         ror     ZL
         p_push_word     ZL, ZH
         jmp     next
+
 ;; Compiling ---------------------
 ; def_asm         "create", 6, $0, create
 ; def_asm         ",", 1, $0, comma
@@ -1076,6 +1229,12 @@ def_asm        "quit", 4, $0, main               ; Main system loop
         .dw     interpret                        ;   since as the outer loop it doesn't really need 
         .dw     branch                           ;   to put anything on the return stack
         .dw     0xfffd                           ; -3
+
+def_word        "test", 4, $0, test 
+        .dw     literal 
+        .dw     0xfffe
+        .dw     dot
+        .dw     exit
 
 def_asm         "accept", 6, $0, accept         ; read from tty into buffer until cr
         mov     ZL, BWL
@@ -1229,7 +1388,41 @@ usb_tx_wait: usb_tx_wait
 ;; Utilities ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ; todo: eeprom for config, clock/timer/usart/spi/port defaults etc.
-setup_data_seg: 
+; load_data_seg: 
+;         ldi     ZL, Low(EEPROM_START)          
+;         ldi     ZH, High(EEPROM_START)
+
+;         push    YH
+;         push    YL
+
+;         ldi     YL, Low(SRAM_START)
+;         ldi     YH, High(SRAM_START)
+
+;     load_ds_loop:
+;         ld      r17, Z+         ; load next from eeprom
+;         ld      r16, Z+
+
+;         cp      r16, zeroR      ; break if zero word found
+;         cpc     r17, zeroR
+;         breq    load_ds_end
+
+;         st      Y+, r17
+;         st      Y+, r16
+;         rjmp    load_ds_loop
+
+;     load_ds_end:
+;         pop     YL
+;         pop     YH
+
+;         ldi     ZL, Low(default_base_pt)        ; load base into GPIOR
+;         ldi     ZH, High(default_base_pt)
+;         ld      r16, Z
+;         out     base_r, r16
+
+;         ret
+
+
+load_data_seg: 
         ldi     ZL, Low(SRAM_START)         ; init working pointer to sram start
         ldi     ZH, High(SRAM_START)
         ldi     r16, Low(word_link)         ; move prog_latest pointer into ram
@@ -1252,12 +1445,19 @@ setup_data_seg:
         st      Z+, r16
         ldi     r16, 0x00
         out     state, r16
-        ldi     r16, 0x10                   ; set default base 
-        out     base_r, r16
         
         
         ret
 
+        
+reset_sysreg:
+        out     state, zeroR
+        out     coroutine_pt, zeroR
+        out     num_format, zeroR
+        sbi     num_format, 7           ; set signed number 
+        ldi     r16, 0x10
+        out     base_r, r16
+        ret 
 reset_w_buffer:
         ldi     WL, Low(buffer_start + 0x100)
         ldi     WH, High(buffer_start + 0x100)
@@ -1292,6 +1492,7 @@ _flash_to_global:                ; multiply by 2 and add 0x4000 for flash mem (u
         ret
 
 ;;  rx/tx ------------------------
+
 
 
 ;;  End of Core ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
