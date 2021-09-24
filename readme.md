@@ -1,9 +1,5 @@
 # YMIR  
 ##  A simple forth for the atmega 4809
-----
-
- > Ymir was a primordial being who was born from venom that dripped from the icy rivers called the Élivágar, and lived in the grassless void of Ginnungagap. Ymir was both male and female, and gave birth to a male and female from his armpits, and his legs together begat a six-headed being. The grandsons of Búri, the gods Odin, Vili and Vé, fashioned the Earth (elsewhere personified as a goddess, Jörð) from his flesh, from his blood the ocean, from his bones the mountains, from his hair the trees, from his brains the clouds, from his skull the heavens, and from his eyebrows the middle realm in which mankind lives.
- ----
 It seems that the best way to know forth is to write one yourself. To that end this project is primarily educational, but may perhaps be practical as well, given that most forths which run on avr have yet to be ported to the 4809.
 
 ##  Compiling
@@ -50,7 +46,7 @@ In some cases I've opted for more unix/c like syntax instead of classical forth 
 First 256 bytes of sram (can be persisted in eeprom)
 | 0x0000: | | | | | | 
 |---------|-----------------|----|----|----|----|
-base | prog_latest | ram_latest | prog_here | ram_here | 0x00
+prog_latest | ram_latest | prog_here | ram_here | 0x00
 
 
 # RAM layout:
@@ -61,6 +57,68 @@ base | prog_latest | ram_latest | prog_here | ram_here | 0x00
 | Buffer ||
 |--------|-|
 | s_buffer>  | <in_buffer |
+
+# Code samples, basic Forth intro: 
+Everything that happens is an operation on the stack. Input consists of ascii words separated by whitespace. Numbers are simply added to the top, and words can manipulate the stack in other ways. Everything is interpreted sequentially from left to right resulting in a postfix style syntax. eg: `2 2 +` instead of `2 + 2`.
+
+to print the stack non-destructively, use `.s`
+```forth
+1 2 3  ok
+.s <3> 1 2 3  ok     
+```
+The three in the angle brackets tells us how many items are on the parameter stack.
+
+To remove and print the top element of the stack, use `.` (period) Now that we know that 1, 2, and 3 are on the stack, we can print each item. `\t`, `\s`, `\n` (tab, space, and newline) are also available for formatting results.
+```forth
+\n . \n \s . \s \s .
+3
+ 2  1 ok    
+```
+Notice that the items are printed in the reverse of the order in which they were placed on the stack. This is an inherent property of our stack-based environment. 
+
+The "ok" tells us that everything happened without any system compromising incidents. 
+
+If you try to take more items off the stack than you initially put there, you'll get a stack underflow
+```forth
+1 2 . . .213100 stack underflow  
+```
+Notice that it still executed the dots--it's just reading into memory that is **not** a part of the parameter stack (In this case the input buffer). 
+
+There is a single integrity check at the end of each interpreter cycle, which will reset things on a deeper level if you've done something plainly wrong.
+
+Basic math works as you'd expect:
+```forth
+2 3 + .5 ok
+2 3 - .-1 ok
+2 3 * .6 ok
+```
+The word `/mod` returns two values, the quotient and remainder:
+```forth
+5 2 /mod swap \n . \s .
+2 1 ok
+```
+Notice that I've added the word `swap` (switch the top two items) to make sure it prints the quotient first.
+
+The number system can be configured with the words `base!`, `sign`, `unsign`, and `digits`. Shortcuts `hex`, `dec`, and `bin` provide for switching between the most common radixes. 
+
+Keep in mind that this isn't a type conversion, you're changing how the entire forth system handles numbers.
+```forth
+-12 unsign .ffee ok         
+```
+After the above example, all numbers will continue to be unsigned until `sign` is called. 
+```forth
+dec 30 hex .1e ok
+ff ok
+bin .11111111 ok
+ff syntax error
+```
+The number 0xff produces a syntax error the second time because the base is no longer hexadecimal, but rather binary. 
+
+`digits` pads numbers smaller than what it's set to with zeros. 
+```forth
+4 digits ok
+ff .00ff ok
+```
 
 # todo 
 - compiler / interpreter state
