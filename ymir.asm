@@ -181,12 +181,12 @@ def_asm         "&p", 2, $0, p_stack_pt
         p_push_word     XL, XH
         jmp     next
 
-def_asm         "base!", 4, $0, set_base      
+def_asm         "base!", 5, $0, set_base 
         p_pop   r16
         out     base_r, r16
         jmp     next
 
-def_asm         "base@", 4, $0, get_base      
+def_asm         "base@", 5, $0, get_base      
         in      r16, base_r
         p_push  r16
         jmp     next
@@ -421,11 +421,12 @@ def_asm         "*", 1, $0, multiplication
         p_pop_word    r16, r17
         p_pop_word    r18, r19
         rcall         _multiplication
+    mul_push:
         cp      r22, zeroR
         cpc     r23, zeroR
         breq    mul_skip_upper
         p_push_word     r22, r23
-mul_skip_upper:
+    mul_skip_upper:
         p_push_word     r20, r21
         jmp     next
 
@@ -433,7 +434,7 @@ mul_skip_upper:
 ;| r[20:21]     result low
 ;| r[18:19]     multiplicand
 ;| r[16:17]     multiplier
-;t
+
 _multiplication: 
         mul     r17, r19        ; multiply high
         movw    r22, r0
@@ -453,65 +454,52 @@ _multiplication:
 
         ret
 
-def_asm         "exp", 3, $0, exponent ; (base, exponent[8 bit] -- result )
-        p_pop_word      r18, r19       ; exponent
-        p_pop_word      r16, r17       ; base    
+def_asm         "exp", 3, $0, exponent
+        p_pop_word      r18, r19        ; power from stack
+        p_pop_word      r16, r17        ; base from stack
         rcall           _exponent
-        cp      r22, zeroR
-        cpc     r23, zeroR
-        breq    exp_skip_upper
-        p_push_word     r22, r23
-    exp_skip_upper:
-        p_push_word     r20, r21
-        jmp     next
-
-
+        rjmp            mul_push
 
 ;| r[22:23]     result high  
 ;| r[20:21]     result low
-;| r[18:19]     exponent
+;| r[18:19]     power
 ;| r[16:17]     base
 _exponent:
-        clr     r20
-        clr     r21 
-        movw    r22, r20
-        cp      r18, zeroR              ; return 1 if zero
-        cpc     r19, zeroR 
-        breq    exp_zero
-        cp      r18, oneR              ; return base if one
-        cpc     r19, oneR
-        breq    exp_one
-
-    exp_loop:
+        clr     r22
+        clr     r23     
+        movw    r4, r18         ; power as counter
         cp      r18, zeroR
         cpc     r19, zeroR
-        breq    exp_end
+        breq    _exp_zero
+        cp      r18, oneR
+        cpc     r19, zeroR
+        breq    _exp_one
+        movw    r18, r16
+        sub     r4, oneR        ; decrement
+        sbc     r5, zeroR 
+
+    _exp_loop:
+        cp      r4, zeroR
+        cpc     r5, zeroR
+        breq    _exp_done
+
+        sub     r4, oneR        ; decrement
+        sbc     r5, zeroR        
+
+        rcall   _multiplication
+        movw    r18, r20        ; put result (low) for next multiply
+
+        rjmp    _exp_loop
+
+    _exp_zero:
+        clr     r21
+        mov     r20, oneR 
+        ret
         
-        mul     r17, r17                ; mul high
-        movw    r22, r0
-
-        mul     r16, r16                ; mul low
-        movw    r20, r0
-
-        mul     r16, r17                ; multiply cross 
-        lsl     r0                      ; Double since both cross products are the same
-        rol     r1
-        add     r21, r0
-        adc     r22, r1
-        adc     r23, zeroR
-
-        sub     r18, oneR               ; decrement
-        sbc     r19, zeroR
-
-        rjmp    exp_loop
-
-    exp_end:
+    _exp_one:
+        movw     r20, r16 
         ret
-    exp_zero: 
-        inc     r20
-        ret
-    exp_one:
-        movw    r20, r16
+    _exp_done:
         ret
 
 
