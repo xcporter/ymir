@@ -12,10 +12,22 @@ Resets return stack, in buffer and s buffer
 Put return stack pointer on stack
 ## `&p`
 Put parameter stack pointer on stack
-## `@base`
-Put current base on stack (will always print 0x10 without conversion)
-## `base`
-Set base
+## `base@`
+fetch current base (will always display as `10` without conversion to/from decimal)
+## `hex`
+hexidecimal
+## `bin`
+binary
+## `dec`
+decimal
+## `base!`
+Store base
+## `digits`
+set leading zero padding
+## `sign`
+toggle sign display
+## `unsign`
+toggle sign display
 ## `padclr`
 ## `&pad`
 ## `drop`
@@ -56,10 +68,13 @@ add
 subtract
 ## `*`
 multiply
+## `**`
+exponent ( base, power -- result )
 ## `/mod`
 Division with remainder 
-
 ( dividend, divisor -- quotient, remainder )
+## `sqrt`
+( input -- root, remainder )
 ## `==`
 is equal
 ## `!=`
