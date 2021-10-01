@@ -41,7 +41,7 @@
 ;   |f_immediate | f_hidden | f_in_ram | 0b | 0b | 0b | 0b | 0b |
 
 ;;  IO Registers ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-;       State: | 0b | 0b | 0b | 0b | 0b | 0b | 0b | compile |
+;       State: | neg | 0b | 0b | 0b | 0b | 0b | 0b | compile |
         .equ        state           = GPIO_GPIOR0
 
         .equ        base_r          = GPIO_GPIOR1
@@ -109,9 +109,9 @@
         
 
 ;;  Start ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        ldi     YL, Low(main)
-        ldi     YH, High(main)
-        rjmp    next
+        ldi     ZL, Low(main)
+        ldi     ZH, High(main)
+        ijmp
 
 ;; Terminal Core ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 do:
@@ -454,7 +454,7 @@ _multiplication:
 
         ret
 
-def_asm         "exp", 3, $0, exponent
+def_asm         "**", 2, $0, exponent
         p_pop_word      r18, r19        ; power from stack
         p_pop_word      r16, r17        ; base from stack
         rcall           _exponent
@@ -886,107 +886,95 @@ def_asm         "char>", 5, $0, from_char
     _char_to_num_1:
         ldi     r17, 0x27
         sub     r16, r17
-        ret
-        
-;| r[8:9]          accumulator
-;| r2              error 
-;| r3              sign 
-;| r4              length
-;| r6              main counter
-;| r5              exponent
-;| r7              exp counter
+        ret  
 
-def_asm         ">num", 4, $0, string_to_num
-        p_pop           r4              ; length
-        p_pop_word      r16, r17        ; address
-        clr             r3              ; sign    
-        clr             r2              ; error
-        clr             r5              ; subcounter  
-        clr             r7
-        clr             r9     
-        mov     ZL, r16
-        mov     ZH, r17
-        mov     r6, r4
-        in      r18, base_r
-        ld      r16, Z+              ; load next char
-        cp      r4, zeroR            ; is zero length?
-        breq    _stn_end
-        cpi     r16, 0x2d            ; is minus sign?
-        breq    _stn_minus
-    _stn_1:                          ; validate, unchar, put on r stack
+
+;| r[8:9] current char, base
+;| r[6:7] accumulator
+;| r5   error
+;| r[2:3] length count, length
+
+def_asm         ">num", 4, $0, string_to_num            ; (addr, length -- num, error)
+        cbi     state, 7 
+        clr     r5
+        clr     r6
+        clr     r7
+        p_pop           r2              ; length
+        mov     r3, r2
+        p_pop_word      ZL, ZH          ; address
+
+        in      r9, base_r
+
+        ld      r8, Z+                  ; load first char
+        dec     r2
+
+        ldi     r16, 0x2D               ; check if '-'
+        cp      r8, r16
+        breq    _stn_sign_1
+    _stn_start:
+        mov     r16, r8
+        ldi     r17, 0x30
+        cp      r16, r17                ; don't accept any chars less than '0'
+        brlt    _stn_err
         call    _from_char
-        dec     r6
-        push    r16                  ; keep temp values on r stack
-        cp      r16, r18             ; greater than base?
-        brge    _stn_error
-    _stn_1_cont:
-        ld      r16, Z+              ; load next
-        cp      r6, zeroR            ; go to next loop if end of string
-        breq    _stn_2          
-        rjmp    _stn_1
+        cp      r16, r9                 ; compare with base
+        brge    _stn_err                ; error if greater
+        push    zeroR                   ; otherwise push unchared num to r stack
+        push    r16
 
-    _stn_2:
-        cp      r6, r4               ; is length?
-        breq    _stn_done
-        inc     r6                   ; increment main ct
-        
-        pop     r16                  ; get next 
-        cp      r5, zeroR            ; just add if b^0
-        breq    _stn_do_first     
+        cp      r2, zeroR
+        breq    _stn_finish
 
-        clr     r17
-        clr     r19
-        clr     r21
-        in      r18, base_r
-        mov     r7, r5                  ; move exp to counter
-    _stn_2_mul:
-        cp      r7, zeroR
-        breq    _stn_2_mul_done
-        call    _multiplication  
-        movw    r16, r20             ; move mul result to next multiplicand 
-        dec     r7
-        rjmp    _stn_2_mul
-    _stn_2_mul_done:
-        inc     r5                   ; inc sub counter (exponent)
-        add     r8, r20
-        adc     r9, r21
-        cp      r22, zeroR
-        cpc     r23, zeroR
-        brne    _stn_overflow
-        rjmp    _stn_2
-        
-    _stn_do_first:
-        mov     r8, r16
+        ld      r8, Z+                  ; load next char
+        dec     r2 
+
+        rjmp    _stn_start              ; loop
+    _stn_err:   
         inc     r5
-        rjmp    _stn_2
-    _stn_minus:                        ; mark negative
-        inc     r3
-        dec     r6                     ; dec length
-        dec     r4
-        ld      r16, Z+                ; load next
-        rjmp    _stn_1
-    _stn_error:
-        inc     r2
-        ld      r16, Z+
-        rjmp    _stn_1_cont
-    _stn_done:
-        cp      r3, zeroR
-        brne    _stn_do_sign
-    _stn_done_1:
-        p_push_word     r8, r9
-    _stn_end:
-        p_push   r2              ; push error if any
-        jmp     next
-    _stn_do_sign:
-        com     r8
-        com     r9
-        add     r8, oneR
-        adc     r9, zeroR     
-        rjmp    _stn_done_1
-    _stn_overflow:              ; overflow error
-        inc     r2
-        rjmp    _stn_2
+        rjmp    _stn_end
 
+    _stn_finish:
+        cp      r2, r3
+        breq    _stn_return
+
+        mov     r16, r9                 ; get place
+        clr     r17
+        mov     r18, r2
+        clr     r19
+        call    _exponent      
+
+        movw    r16, r20                ; multiply by term
+        pop     r18
+        pop     r19
+        call    _multiplication
+
+        add     r6, r20                 ; add to accumulator
+        adc     r7, r21         
+
+        inc     r2
+        rjmp    _stn_finish             ; loop
+
+     _stn_sign_1:
+        sbi     state, 7 
+
+        ld      r8, Z+                  ; load next char
+        dec     r2 
+        dec     r3                      ; dec backup count 
+        rjmp    _stn_start
+    _stn_sign_2:
+        com     r7                      ; do two's compliment
+        neg     r6
+        cbi     state, 7
+
+        rjmp    _stn_end
+        
+    _stn_return:
+        sbic    $1c, 7                 ; check sign in state register
+        rjmp    _stn_sign_2
+    _stn_end:
+        p_push_word     r6, r7          ; push result
+        p_push          r5              ; push error
+        jmp     next
 
 ;|      r0 length counter
 def_asm         "num>", 4, $0, num_to_string
@@ -994,9 +982,9 @@ def_asm         "num>", 4, $0, num_to_string
         ldi     ZL, Low(buffer_start)           ; load pad address into Z
         ldi     ZH, High(buffer_start)
         p_pop_word   r22, r23                   ; load num from stack
-        in      r18, num_format 
-        sbrc    r18, 7                          ; if using signed numbers, do sign
-        rcall    _nts_sign
+        sbic    num_format, 7                   ; if using signed numbers, do sign
+        rjmp    _nts_sign
+    _nts_start:
         in      r16, base_r                     ; load divisor (base)
         clr     r17
 
@@ -1014,13 +1002,15 @@ def_asm         "num>", 4, $0, num_to_string
         mov     r23, r21
         rjmp    _nts_loop
 
-
      _nts_write:
         inc     r0                              ; push last remainder
         push    r19           
         push    r18
         mov     r1, r0                          ; copy length
         rjmp    _nts_format
+    _nts_write_cont:
+        sbic    $1c, 7                          ; check sign in state register
+        rjmp    _nts_write_sign
 
      _nts_write_loop:
         cp      r0, zeroR
@@ -1036,14 +1026,19 @@ def_asm         "num>", 4, $0, num_to_string
     _nts_sign:
         sbrc    r23, 7
         rjmp    _do_nts_sign
-        ret
+        rjmp    _nts_start
     _do_nts_sign:
-        inc     r0
         com     r23 
         neg     r22 
-        ldi     r16, '-'
+        sbi     state, 7 
+        rjmp    _nts_start
+
+    _nts_write_sign:
+        ldi     r16, 0x2d
         st      Z+, r16
-        ret
+        inc     r1
+        cbi     state, 7 
+        rjmp    _nts_write_loop
 
     _nts_format:
         in      r16, num_format 
@@ -1063,7 +1058,7 @@ def_asm         "num>", 4, $0, num_to_string
 
     _nts_skip_format:
         mov     r0, r1                  ; put back counter for write
-        rjmp    _nts_write_loop
+        rjmp    _nts_write_cont
     _nts_done:   
         ldi     ZL, Low(buffer_start)           ; put string addr / length on stack
         ldi     ZH, High(buffer_start)
@@ -1211,7 +1206,7 @@ def_asm         ">xt", 3, $0, to_xt
 ; def_asm         "hidden", 6, $0, hidden
 ; def_asm         0x27, 1, $0, get_xt 
 ;; Interpreting ------------------
-def_asm        "quit", 4, $0, main               ; Main system loop
+def_word        "quit", 4, $0, main              ; Main system loop
         .dw     reset                            ;   Notice that it's defined as asm despite being a 
         .dw     accept                           ;   forth word. There is no call to 'do' included, 
         .dw     interpret                        ;   since as the outer loop it doesn't really need 
@@ -1219,10 +1214,11 @@ def_asm        "quit", 4, $0, main               ; Main system loop
         .dw     0xfffd                           ; -3
 
 def_word        "test", 4, $0, test 
-        .dw     literal 
-        .dw     0xfffe
-        .dw     dot
+        .dw     litstring
+        .db     5,"clear"
+        .dw     find 
         .dw     exit
+
 
 def_asm         "accept", 6, $0, accept         ; read from tty into buffer until cr
         mov     ZL, BWL
@@ -1327,7 +1323,7 @@ def_word         "clear", 5, $0, clear
         .dw     litstring
         .db     0x0e, 0x1b, "[2J", 0x1b, "[20A", 0x1b, "[20D"
         .dw     print
-        .dw     main
+        .dw     main    
 
 def_word        "ok", 2, $0, ok
         .dw     litstring
@@ -1352,7 +1348,7 @@ def_word        "undererr", 8, $0, under_err
 
 def_asm        "abort", 5, $0, abort
         call    reset_p
-        jmp     next
+        jmp     main 
 
 def_asm         "syscheck", 8, $0, syscheck
         ldi     r16, Low(p_stack_start)
