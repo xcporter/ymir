@@ -550,6 +550,53 @@ _division:
     mod_end:
         ret
 
+def_asm         "sqrt", 4, $0, square_root ; (input -- root, remainder)
+        p_pop_word      r16, r17
+        rcall           _square_root
+        p_push_word     r0, r1
+        p_push_word     r2, r3
+        jmp     next
+
+;| r20 counter
+;| r[16:17] in
+;| r[2:3] Remainder
+;| r[0:1] Root 
+_square_root:
+        clr     r2 
+        clr     r3
+        movw    r0, r2
+        ldi     r20, 0x08
+_sqrt_loop:
+        lsl     r0      ; root * 2
+        rol     r1
+
+        lsl     r16     ; shift 2 bits from input into rem
+        rol     r17
+        rol     r2
+        rol     r3
+
+        lsl     r16     
+        rol     r17
+        rol     r2
+        rol     r3
+
+        cp      r0, r2
+        cpc     r1, r3
+        brcc    _sqrt_end
+        inc     r0
+        sub     r2, r0
+        sbc     r3, r1
+        inc     r0
+_sqrt_end:
+        dec     r20
+        brne    _sqrt_loop
+        lsr     r1
+        ror     r0
+        ret
+
+
+
+
 ;; Comparison --------------------
 _do_compare:
         p_pop_word  r16, r17
