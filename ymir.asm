@@ -34,11 +34,11 @@
         .def        oneR = r11
 
 ;; Word Structure ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-;   | Link Address | Name Length | Name | Flag | Definition | 0xPadding
-;   | 2 B          | 1 B         | n B  | 1 B  | n B        | n B
-;                                      /       \
-;    _________________________________/         \_______________
-;   |f_immediate | f_hidden | f_in_ram | 0b | 0b | 0b | 0b | 0b |
+;   | Link Address | Flags/Length | Definition |
+;   | 2 B          | n B          | n B        |
+;                 /                \
+;    ____________/                  \__________________
+;   |f_immediate | f_hidden | f_indirect | Length[4:0] |
 
 ;;  IO Registers ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ;       State: | neg | 0b | 0b | 0b | 0b | 0b | 0b | compile |
@@ -65,30 +65,6 @@
         .equ        w_buffer_start = buffer_start + 0x100
         .equ        dict_start = RAMEND - r_stack_max
 
-;;  System Memory ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-;               Default system values in eeprom
-        .eseg
-        .org    0x0000
-
-    prog_latest:
-        .dw     word_link               
-    ram_latest:
-        .dw     dict_start              
-    prog_here_e:
-        .dw     prog_here              
-    ram_here:
-        .dw     dict_start              
-    default_base:
-        .dw     0x000A   
-
-        .dw     0x0000
-; Access pointers ----------------
-        .equ        prog_latest_pt = prog_latest + SRAM_START
-        .equ        ram_latest_pt = ram_latest + SRAM_START
-        .equ        prog_here_pt = prog_here_e + SRAM_START
-        .equ        ram_here_pt = ram_here + SRAM_START
-        .equ        default_base_pt = default_base + SRAM_START
-
 ;; Setup ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         .cseg
         .org    0x0000
@@ -109,30 +85,29 @@
         
 
 ;;  Start ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        ldi     ZL, Low(main)
+        ldi     ZL, Low(main)           ; perhaps add another layer of deflection for user configurable init
         ldi     ZH, High(main)
         ijmp
 
 ;; Terminal Core ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 do:
-        push    YL
         push    YH
-        adiw    ZL, 0x02  ; opcode is 3 bytes
+        push    YL
+        
+        adiw    ZL, 0x02  ; opcode is 4 bytes
+
         movw    YL, ZL
+        lsl     YL        ; Instruction pointer is in global address space
+        rol     YH
+        ldi     r16, 0x40
+        add     YH, r16
         rjmp    next
 done:
-        pop     YH
         pop     YL
+        pop     YH
 next:
-        ldi     r18, 0x40
-        lsl     YL
-        rol     YH
-        add     YH, r18
         ld      ZL, Y+
         ld      ZH, Y+
-        sub     YH, r18
-        lsr     YH
-        ror     YL
         ijmp
 
 
@@ -145,15 +120,8 @@ def_asm         "exit", 4, $0, exit
         rjmp    done
 
 def_asm         "lit", 3, $0, literal           ; Retrieve next as num and put on P-stack
-        ldi     r18, 0x40
-        lsl     YL
-        rol     YH
-        add     YH, r18
         ld      r16, Y+
         ld      r17, Y+
-        sub     YH, r18
-        lsr     YH
-        ror     YL
         p_push_word  r16, r17
         rjmp    next 
 
@@ -177,18 +145,17 @@ def_asm         "&r", 2, $0, r_stack_pt
 
 def_const       "p0", 2, $0, p_start, p_stack_start
 
-def_asm         "&p", 2, $0, p_stack_pt
-        p_push_word     XL, XH
+def_asm         "base@", 5, $0, get_base      
+        in      r16, base_r
+        p_push  r16
         jmp     next
 
 def_asm         "base!", 5, $0, set_base 
         p_pop   r16
         out     base_r, r16
         jmp     next
-
-def_asm         "base@", 5, $0, get_base      
-        in      r16, base_r
-        p_push  r16
+def_asm         "&p", 2, $0, p_stack_pt
+        p_push_word     XL, XH
         jmp     next
 
 def_word        "hex", 3, $0, to_hex
@@ -216,6 +183,17 @@ def_asm         "unsign", 6, $0, unsign
         cbi     num_format, 7
         jmp     next
 
+; Access pointers ----------------
+
+def_const       "&prog.latest", 12, $0, p_latest_pt, SRAM_START
+def_const       "&ram.latest", 11, $0, r_latest_pt, SRAM_START + 0x02
+
+def_const       "&prog.here", 10, $0, p_here_pt, SRAM_START + 0x04
+def_const       "&ram.here", 9, $0, r_here_pt, SRAM_START + 0x06
+
+
+
+
 ; (digits --) set length constant for how nums are displayed
 ; numbers that exceed the digit size are unaffected
 ; smaller numbers are padded with zeros
@@ -233,6 +211,7 @@ def_const       "buffer", 6, $0, buffer, w_buffer_start
 
 ;; Stack Ops ---------------------
 ;       Parameter
+
 def_asm         "drop", 4, $0, drop
         sbiw    XL, 0x02
         jmp     next
@@ -751,15 +730,15 @@ def_asm         "!+", 2, $0, store_inc       ; ( val, addr -- addr + 1)
 
 def_asm         "@", 1, $0, fetch
         p_pop_word  ZL, ZH          ; load address
-        ld      r17, Z+
         ld      r16, Z+
+        ld      r17, Z+
         p_push_word  r16, r17       ; put value on p_stack
         jmp     next
 
 def_asm         "@+", 2, $0, fetch_inc ; (addr -- next_addr, value)
         p_pop_word  ZL, ZH          ; load address
-        ld      r17, Z+
         ld      r16, Z+
+        ld      r17, Z+
         p_push_word  ZL, ZH     
         p_push_word  r16, r17       ; put value on p_stack
         jmp     next
@@ -773,24 +752,16 @@ def_word        "move", 4, $0, move     ; ( from_addr, to_addr, length -- )
 
 ;; String Ops --------------------
 def_asm         "litstring", 9, $0, litstring
-        ldi     r18, 0x40       ; addr to global space
-        lsl     YL
-        rol     YH
-        add     YH, r18
-        ld      r16, Y+         ; load length
+        ld      r16, Y+                 ; load length
+
         p_push_word      YL, YH
-        adiw    YL, 0x01        ; finish length offset
-        sub     YH, r18         ; addr back to flash space
-        lsr     YH
-        ror     YL
+        p_push           r16      ; push length
 
-        mov     r17, r16        ; divide by two (word addressed)
-        lsr     r17
+        sbrs    r16, 0          ; account for padding if length even (total odd)
+        inc     r16
 
-        p_push  r16
-        add     YL, r17         ; add length to instruction pointer
-        ldi     r17, 0x00
-        adc     YH, r17
+        add     YL, r16                 ; add length to instruction pointer
+        adc     YH, zeroR
 
         jmp    next 
 
@@ -811,28 +782,22 @@ def_asm         "print", 5, $0, print
 
 ;; Branching ---------------------
 def_asm         "branch", 6, $0, branch
-        ldi     r18, 0x40
-        lsl     YL              ; load jump offset into r[16:17]
-        rol     YH
-        add     YH, r18
         ld      r16, Y+
         ld      r17, Y+
-        sub     YH, r18
-        lsr     YH
-        ror     YL
-        sbiw    YL, 0x02
+        lsl     r16
+        rol     r17
+        sbiw    YL, 0x04        ; counts from pointer to branch
         add     YL, r16
         adc     YH, r17
         jmp     next
 
 def_asm         "?branch", 7, $0, branch_if
         p_pop   r16
-        ldi     r17, 0x00
-        cpse    r16, r17
+        cpse    r16, zeroR
         rjmp    branch_if_skip
         rjmp    branch
     branch_if_skip:
-        adiw    YL, 0x01        ; advance Y past number if skip
+        adiw    YL, 0x02        ; advance Y past number if skip
         jmp     next
 
 ;; I/O ---------------------------
@@ -960,9 +925,23 @@ def_asm         ">num", 4, $0, string_to_num            ; (addr, length -- num, 
         breq    _stn_sign_1
     _stn_start:
         mov     r16, r8
-        ldi     r17, 0x30
-        cp      r16, r17                ; don't accept any chars less than '0'
+        ldi     r17, '0'
+        cp      r16, r17                ; accept only 0-9, a-z
         brlt    _stn_err
+
+        ldi     r17, ':'  
+        cp      r16, r17              ; 
+        brlt    _stn_cont
+
+        ldi     r17, '{'
+        cp      r16, r17
+        brge    _stn_err
+
+        ldi     r17, 'a'
+        cp      r16, r17
+        brlt    _stn_err 
+    _stn_cont:
+        cp      r16, r17
         call    _from_char
         cp      r16, r9                 ; compare with base
         brge    _stn_err                ; error if greater
@@ -1115,130 +1094,101 @@ def_asm         "num>", 4, $0, num_to_string
         
 
 ;; Dictionary Ops ----------------
-_skip_word_name:
-        push    r3
-        sbrs    r3, 0         ; deal with byte padding for things that take up odd numbers of space
-        inc     r3
-        add     ZL, r3
-        adc     ZH, zeroR
-        pop     r3
-        ret
 
-_back_to_name:
-        push    r3
-        sbrs    r3, 0         ; deal with byte padding for things that take up odd numbers of space
-        inc     r3
-        sub     ZL, r3
-        sbc     ZH, zeroR
-        sbiw    ZL, 0x01        ; back up past flag
-        pop     r3
-        ret
 
-;| r[22:23]     accumulator
-;| r[20:21]     next address
-;| r[18:19]     target address
-
-;| r[6:7]       target safekeeping
-;| r2           target length
-;| r3           this length
-
-;| r4           detail counter
+;| r[18:19] input string address 
+;| r[20:21] length [current | input]
 def_asm         "find", 4, $0, find
-        clr     r22                         ; setup acc
-        clr     r23
-        clr     r4
+
+        push    YH                          ; put away instruction pointer for now
+        push    YL  
+
         ldi     r18, Low(dict_start)        ; check if any dict in ram (ram_latest == dict_start)
         ldi     r19, High(dict_start)
-        ldi     ZL, Low(ram_latest_pt)
-        ldi     ZH, High(ram_latest_pt)
-        ld      r16, Z+
-        ld      r17, Z+
-        cp      r16, r18
-        cpc     r17, r19
+        ldi     YL, Low(SRAM_START + 0x02)
+        ldi     YH, High(SRAM_START + 0x02)
+        ld      ZL, Y+                      ; load ram latest into Z
+        ld      ZH, Y+
+                    
+
+        p_pop           r21                  ; load target length
+        p_pop_word      r18, r19              ; load target address
+        cp      ZL, r18
+        cpc     ZH, r19
         breq    find_prog
+        
     find_ram:
     ;todo
     find_prog:
-        p_pop   r2                              ; load target length r2 
-        p_pop_word  r18, r19                    ; load target addr r[18:19]
-        mov     r6, r18
-        mov     r7, r19
-        ldi     ZL, Low(prog_latest_pt)         ; move prog_latest into Z
-        ldi     ZH, High(prog_latest_pt)
-        ld      r16, Z+
-        ld      r17, Z+
-        movw    ZL, r16
-        call    _flash_to_global
-        ld      r20, Z+                         ; load next address
-        ld      r21, Z+
-
+        ldi     YL, Low(SRAM_START)
+        ldi     YH, High(SRAM_START)
+    find_next:
+        ld      ZL, Y+          ; load next address
+        ld      ZH, Y+
+        movw    YL, ZL          ; copy to Y
+        
+        cp      YL, zeroR
+        cpc     YH, zeroR
+        breq    find_not_found
     find_loop:
-        mov     r8, r20
-        mov     r9, r21
-        ld      r3, Z+                          ; get length
-        cp      r2, r3                          ; go to next if word different
-        brne    find_next
-        rcall   _skip_word_name                 ; advance Z to compile flag
-        ld      r16, Z+
+        adiw    ZL, 0x02
+        ld      r16, Z+                         ; get length / flags
+
+
         sbrc    r16, 6                          ; skip if hidden
         rjmp    find_next
 
-        cp      r2, r3                          ; compare detail if length same
-        breq    find_detail
-    find_next:
-        movw    ZL, r20
-        call    _flash_to_global
-        ld      r20, Z+                         ; load next address
-        ld      r21, Z+
-        cp      r20, zeroR
-        cpc     r21, zeroR
-        breq    find_not_found
-        rjmp    find_loop
-    find_detail:
-        rcall    _back_to_name
-        mov     r4, r3
+        andi    r16, 0b00011111                 ; mask flags
+
+        cp      r21, r16                         ; keep looking if different length
+        brne    find_next       
+
+   find_detail:
+        mov     r20, r21
+        push    YH              ; stash current address on return stack
+        push    YL              
+        movw    YL, r18          ; put target in Y
     detail_loop:
-        cp      r4, zeroR                     
-        breq    find_found                      ; all chars are same    
-        dec     r4                              ; else decrement length
-        ld      r16, Z+                         ; compare next
-        push    ZL                              ; get chars to compare
-        push    ZH   
-        movw    ZL, r18
-        ld      r17, Z+
-        movw    r18, ZL
-        pop     ZH
-        pop     ZL
+        cp      r20, zeroR                     
+        breq    find_found                      ; all chars are the same; break!
+
+        dec     r20
+        ld      r16, Z+
+        ld      r17, Y+
+
         cp      r16, r17                        ; do compare
         brne    detail_exit                     ; didn't match
         rjmp    detail_loop                     ; did match
     detail_exit:        
-        mov     r18, r6                         ; restore target address
-        mov     r19, r7
+        pop     YL              ; put back current address
+        pop     YH
         rjmp    find_next
+
     find_found:
-        call    _back_to_name
-        sbrs    r3, 0                   ; increment if word has even number of letters
-        adiw    ZL, 0x01
-        sbiw    ZL, 0x02                  ; back up to word link
-        p_push_word     ZL, ZH                 
-        jmp     next
+        pop     YL                      ; put back current address
+        pop     YH
+        p_push_word     YL, YH          ; put on p stack  
+        rjmp    find_done
     find_not_found:
         p_push  zeroR
+    find_done:
+        pop     YL                      ; put back instruction pointer
+        pop     YH 
         jmp     next
 
 def_asm         ">xt", 3, $0, to_xt
-        p_pop_word    r16, r17          ; get address from stack
-        mov     ZL, r16                 ; load into Z                                                          
-        mov     ZH, r17
+        p_pop_word    ZL, ZH            ; get address from stack
         adiw    ZL, 0x02                ; skip past word link
-        ld      r3, Z+                  ; get length
-        call    _skip_word_name
-        adiw    ZL, 0x02                ; skip past flag
-        ldi     r16, 0x40               ; convert to flash address
-        sub     ZH, r16
-        lsr     ZH
-        ror     ZL
+        ld      r16, Z+                 ; get length
+        andi    r16, 0b00011111         ; mask flags
+
+        sbrs    r16, 0         ; deal with byte padding for things that take up odd numbers of space
+        inc     r16
+
+        add     ZL, r16        ; move pointer to start of definition
+        adc     ZH, zeroR
+
+        call    _global_to_flash
         p_push_word     ZL, ZH
         jmp     next
 
@@ -1254,16 +1204,31 @@ def_asm         ">xt", 3, $0, to_xt
 ; def_asm         0x27, 1, $0, get_xt 
 ;; Interpreting ------------------
 def_word        "quit", 4, $0, main              ; Main system loop
-        .dw     reset                            ;   Notice that it's defined as asm despite being a 
-        .dw     accept                           ;   forth word. There is no call to 'do' included, 
-        .dw     interpret                        ;   since as the outer loop it doesn't really need 
-        .dw     branch                           ;   to put anything on the return stack
+        .dw     reset                            ;  
+        .dw     accept                           ;   
+        .dw     interpret                        ;   
+        .dw     branch                           ;  
         .dw     0xfffd                           ; -3
 
 def_word        "test", 4, $0, test 
         .dw     litstring
-        .db     5,"clear"
-        .dw     find 
+
+        .db     5,">base"
+        .dw     print 
+
+        ; .dw     literal
+        ; .dw     0x000a
+        ; .dw     dup 
+        ; .dw     branch_if 
+        ; .dw     0x0008
+        ; .dw     dup
+        ; .dw     dot 
+        ; .dw     sp 
+        ; .dw     decr 
+        ; .dw     branch 
+        ; .dw     0xfff9
+        ; .dw     drop
+        ; .dw     cr
         .dw     exit
 
 
@@ -1419,75 +1384,44 @@ usb_tx_wait: usb_tx_wait
 ;; Utilities ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ; todo: eeprom for config, clock/timer/usart/spi/port defaults etc.
-; load_data_seg: 
-;         ldi     ZL, Low(EEPROM_START)          
-;         ldi     ZH, High(EEPROM_START)
-
-;         push    YH
-;         push    YL
-
-;         ldi     YL, Low(SRAM_START)
-;         ldi     YH, High(SRAM_START)
-
-;     load_ds_loop:
-;         ld      r17, Z+         ; load next from eeprom
-;         ld      r16, Z+
-
-;         cp      r16, zeroR      ; break if zero word found
-;         cpc     r17, zeroR
-;         breq    load_ds_end
-
-;         st      Y+, r17
-;         st      Y+, r16
-;         rjmp    load_ds_loop
-
-;     load_ds_end:
-;         pop     YL
-;         pop     YH
-
-;         ldi     ZL, Low(default_base_pt)        ; load base into GPIOR
-;         ldi     ZH, High(default_base_pt)
-;         ld      r16, Z
-;         out     base_r, r16
-
-;         ret
-
-
 load_data_seg: 
-        ldi     ZL, Low(SRAM_START)         ; init working pointer to sram start
-        ldi     ZH, High(SRAM_START)
-        ldi     r16, Low(word_link)         ; move prog_latest pointer into ram
-        ldi     r17, High(word_link)
-        st      Z+, r16
-        st      Z+, r17
-        ldi     r16, Low(dict_start)        ; move ram_latest pointer into ram
-        ldi     r17, High(dict_start)
-        st      Z+, r16
-        st      Z+, r17
-        ldi     r16, Low(prog_here)         ; move prog_here pointer into ram
-        ldi     r17, High(prog_here)
-        st      Z+, r16
-        st      Z+, r17
-        ldi     r16, Low(dict_start)        ; move ram_here pointer into ram
-        ldi     r17, High(dict_start)
-        st      Z+, r16
-        st      Z+, r17
-        ldi     r16, 0x00                   ; padding
-        st      Z+, r16
-        ldi     r16, 0x00
-        out     state, r16
-        
-        
+        ldi     ZL, Low(EEPROM_START)          
+        ldi     ZH, High(EEPROM_START)
+
+        push    YH
+        push    YL
+
+        ldi     YL, Low(SRAM_START)
+        ldi     YH, High(SRAM_START)
+
+    load_ds_loop:
+        ld      r17, Z+         ; load next from eeprom
+        ld      r16, Z+
+
+        cp      r16, zeroR      ; break if zero word found
+        cpc     r17, zeroR
+        breq    load_ds_end
+
+        st      Y+, r17
+        st      Y+, r16
+        rjmp    load_ds_loop
+
+    load_ds_end:
+        pop     YL
+        pop     YH
+
         ret
 
         
 reset_sysreg:
         out     state, zeroR
         out     coroutine_pt, zeroR
-        out     num_format, zeroR
-        sbi     num_format, 7           ; set signed number 
-        ldi     r16, 0x10
+        ldi     ZL, Low(EEPROM_START + 0x08)        ; load base into GPIOR
+        ldi     ZH, High(EEPROM_START + 0x08)
+        ld      r16, Z+
+        ld      r17, Z+
         out     base_r, r16
+        out     num_format, r17                   ; clear number fmt
         ret 
 reset_w_buffer:
         ldi     WL, Low(buffer_start + 0x100)
@@ -1522,9 +1456,42 @@ _flash_to_global:                ; multiply by 2 and add 0x4000 for flash mem (u
         add     ZH, r16
         ret
 
+_global_to_flash:
+        ldi     r18, 0x40
+        sub     ZH, r18         ; addr back to flash space
+        lsr     ZH
+        ror     ZL
+        ret
+
+do_const:
+        p_push_word      r16, r17           ; puts on p stack
+        jmp      next
+
+do_const_b:
+        p_push     r16                     ; puts on p stack
+        jmp      next
+
 ;;  rx/tx ------------------------
 
 
 
 ;;  End of Core ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 prog_here:
+
+;;  System Memory ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+;               Default system values in eeprom
+        .eseg
+        .org    0x0000
+
+    prog_latest:
+        .dw     (word_link << 1) + 0x4000              
+    ram_latest:
+        .dw     dict_start              
+    prog_here_e:
+        .dw     (prog_here << 1) + 0x4000              
+    ram_here:
+        .dw     dict_start              
+    default_base:
+        .dw     0x000A   
+
+        .dw     0x0000

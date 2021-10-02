@@ -15,7 +15,7 @@ filename=$(basename -- "$1")
 eepfile="$(pwd)/${filename%.*}.eep.hex"
 
 # upload
-~/Library/Arduino15/packages/arduino/tools/avrdude/6.3.0-arduino17/bin/avrdude -C ~/Library/Arduino15/packages/arduino/tools/avrdude/6.3.0-arduino17/etc/avrdude.conf -v -patmega4809 -cjtag2updi -P$ARDUINO_UPLOAD_PORT -b115200 -e -D -U flash:w:$1:i -U eeprom:w:$eepfile:i
+~/Library/Arduino15/packages/arduino/tools/avrdude/6.3.0-arduino17/bin/avrdude -C ~/Library/Arduino15/packages/arduino/tools/avrdude/6.3.0-arduino17/etc/avrdude.conf -v -patmega4809 -cjtag2updi -P$ARDUINO_UPLOAD_PORT -b115200 -e -D -U flash:w:$1:i  -U eeprom:w:$eepfile:i
 
 
 

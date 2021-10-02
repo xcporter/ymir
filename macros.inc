@@ -21,9 +21,13 @@
 ;       name_string, name_length, flag, subroutine_name
 .macro def_asm
         link_asm_%:
-                    .dw     word_link
-                    .db     @1, @0                      ; store length / name
-                    .db     @2                          ; store flag
+                .if     word_link != 0x0000 
+                        .dw     (word_link << 1) + 0x4000
+                .else
+                        .dw     word_link
+                .endif
+                    
+                    .db     ((@1 & 0b00011111)+(@2 & 0b11100000)), @0   ; store length / flag
         .set            word_link = link_asm_%          ; update link
         .equ        @3 = PC
 .endmacro
@@ -32,9 +36,12 @@
 ;       name_string, name_length, flag, subroutine_name
 .macro def_word
         link_word_%:
-                    .dw     word_link
-                    .db     @1, @0                      ; store length / name
-                    .db     @2                          ; store flag
+                .if     word_link != 0x0000 
+                        .dw     (word_link << 1) + 0x4000
+                .else
+                        .dw     word_link
+                .endif
+                    .db     ((@1 & 0b00011111)+(@2 & 0b11100000)), @0   ; store length / flag
         .set            word_link = link_word_%         ; update link
         .equ        @3 = PC
                     jmp     do
@@ -46,39 +53,37 @@
         def_asm     @0, @1, @2, @3          ; setup header
         ldi      r16, Low(@4)           ; does: put address on stack
         ldi      r17, High(@4)
-        p_push_word      r16, r17           ; puts on p stack
-        jmp      next
+        jmp      do_const
 .endmacro
 
 ;; constant byte rather than word
 .macro def_const_b
         def_asm     @0, @1, @2, @3          ; setup header
         ldi      r16, @4            
-        p_push   r16
-        jmp      next          
+        jmp      do_const_b         
 .endmacro
 
 ;;      Parameter stack ops
 ;;      input: Rn
 .macro  p_push 
+        st      X+, @0                  ; store and increment pointer
         st      X+, zeroR
-        st      X+, @0                                  ; store and increment pointer
 .endmacro
 
 .macro  p_pop
-        ld      @0, -X                                  ; load and decrement pointer
-        sbiw    XL, 0x01
+        sbiw    XL, 0x01                ; load and decrement pointer
+        ld      @0, -X
 .endmacro
 
 ;;      Parameter stack ops
 ;;      input: RL, RH
 .macro p_pop_word                                       
-        ld      @0, -X
         ld      @1, -X
+        ld      @0, -X
 .endmacro
 
 .macro  p_push_word 
-        st      X+, @1              ; store and increment pointer
-        st      X+, @0
+        st      X+, @0              ; store and increment pointer
+        st      X+, @1
 .endmacro
 
