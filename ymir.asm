@@ -48,7 +48,7 @@
 
         .equ        coroutine_pt    = GPIO_GPIOR2
 
-;       Number format: | sign [default true] | 0b | 0b | padding [5:0] |
+;       Number format: | sign [default true] | base literal | 0b | padding [5:0] |
         .equ        num_format      = GPIO_GPIOR3 
 
 
@@ -923,6 +923,47 @@ def_asm         ">num", 4, $0, string_to_num            ; (addr, length -- num, 
         ldi     r16, 0x2D               ; check if '-'
         cp      r8, r16
         breq    _stn_sign_1
+
+    _stn_base_literal:
+        mov     r16, r8
+        ldi     r17, '$'
+        cp      r16, r17
+        breq    _stn_base_override
+
+        ldi     r17, '#'
+        cp      r16, r17
+        breq    _stn_base_override
+
+        ldi     r17, '%'
+        cp      r16, r17
+        breq    _stn_base_override
+
+        rjmp    _stn_start
+
+   _stn_sign_1:
+        sbi     state, 7 
+
+        ld      r8, Z+                  ; load next char
+        dec     r2 
+        dec     r3                      ; dec backup count 
+        rjmp    _stn_base_literal
+    _stn_base_override:
+        ldi     r18, 0x0a
+        ldi     r17, 0x23
+        sub     r16, r17
+
+        sbrc    r16, 0
+        ldi     r18, 0x10
+
+        sbrc    r16, 1
+        ldi     r18, 0x02
+
+        mov     r9, r18
+
+        ld      r8, Z+                  ; load next
+        dec     r2
+        dec     r3
+
     _stn_start:
         mov     r16, r8
         ldi     r17, '0'
@@ -980,13 +1021,6 @@ def_asm         ">num", 4, $0, string_to_num            ; (addr, length -- num, 
         inc     r2
         rjmp    _stn_finish             ; loop
 
-     _stn_sign_1:
-        sbi     state, 7 
-
-        ld      r8, Z+                  ; load next char
-        dec     r2 
-        dec     r3                      ; dec backup count 
-        rjmp    _stn_start
     _stn_sign_2:
         com     r7                      ; do two's compliment
         neg     r6
@@ -1211,24 +1245,25 @@ def_word        "quit", 4, $0, main              ; Main system loop
         .dw     0xfffd                           ; -3
 
 def_word        "test", 4, $0, test 
-        .dw     litstring
-
-        .db     5,">base"
-        .dw     print 
-
-        ; .dw     literal
-        ; .dw     0x000a
-        ; .dw     dup 
-        ; .dw     branch_if 
-        ; .dw     0x0008
-        ; .dw     dup
-        ; .dw     dot 
-        ; .dw     sp 
-        ; .dw     decr 
-        ; .dw     branch 
-        ; .dw     0xfff9
-        ; .dw     drop
-        ; .dw     cr
+        .dw     unsign
+        .dw     literal
+        .dw     0x0004
+        .dw     digits
+        .dw     literal
+        .dw     0x1400
+        .dw     literal
+        .dw     0x000a
+        .dw     dup 
+        .dw     branch_if 
+        .dw     0x0008
+        .dw     dup
+        .dw     dot 
+        .dw     sp 
+        .dw     decr 
+        .dw     branch 
+        .dw     0xfff9
+        .dw     drop
+        .dw     cr
         .dw     exit
 
 
