@@ -5,11 +5,20 @@ It seems that the best way to know forth is to write one yourself. To that end t
 ##  Compiling
 I use the avra toolchain, and avrdude to flash. For avrdude, be sure to use the version included with the arduino environment. Also, to trigger the programmer (if you're using the arduino nano every) you'll have to make a connection at 1200 baud, then immediately disconnect and engage avrdude. 
 
+## Connecting
+Find likely IO devices with `ls /dev/cu*` the one most similar to `/dev/cu.usbmodem141401` is the correct port.
+
+To connect with the `screen` utility, enter the following into bash:
+```
+screen /dev/cu.usbmodem141401 115200
+```
+where the last number is the baud rate. 
+
 ## General Structures
 Though this forth is for an 8 bit processor, the default number type in this system is a signed 16 bit integer. 
-Each space on the parameter stack is a single 16 bit word. This avoids having to manage all manner of possible address alignment mishaps that could occur if items of mixed size were kept on the stack. (At the cost of some memory space)
+Each space on the parameter stack is a single 16 bit word.
 
-Memory that decrements generally belongs to "system" concerns like the in-buffer, dictionary and return stack. 
+Memory that decrements generally belongs to "system" concerns like the in-buffer,and return stack. 
 All other memory segments grows toward higher addresses. 
 
 In some cases I've opted for more unix/c like syntax instead of classical forth syntax, for example:
@@ -17,24 +26,33 @@ In some cases I've opted for more unix/c like syntax instead of classical forth 
 `!=` instead of `<>`, `/n` instead of `cr`, etc.
 
 # Reserved Registers 
-       SP: Return stack pointer
-       Z:  Working Pointer: program memory read/write, indirect execution
-       Y:  Instruction Pointer
-       X:  Parameter stack pointer
-       W:  pointer to s buffer (r[24:25])
-       BR: r[14:15] in buffer read pointer
-       BW: r[12:13]  in buffer write pointer
-       constant zero: r10
-       constant one: r11
+`SP` - Return stack pointer
+
+`Z` - Working Pointer
+- memory read/write,indirect execution
+
+`Y` -  Instruction Pointer
+
+`X` -  Parameter stack pointer
+
+`W` -  pointer to s buffer (r[24:25])
+
+`BR` - r[14:15] in buffer read pointer
+
+`BW` - r[12:13]  in buffer write pointer
+
+`zeroR` - r10 constant zero
+
+`oneR` - r11 constant one
 
 # Word Structure 
-| Link Address | Name Length | Name | Flag | Definition | 0xPadding |
-|--------------|-------------|------|------|------------|-----------|
-| 2 b | 1 b | n b | 1 b  | n b        | n b
+| Link Address | Name Length / Flag | Name  | Definition | 
+|-|-|-|-|
+| 2 b | flags[7:5] length[4:0] | max 31 chars | code or data  | n b        | n b
 
 | Flag Detail|          |          |    |    |    |    |           |
 |------------|----------|----------|----|----|----|----|-----------|
-|f_immediate | f_hidden | f_in_ram | 0b | 0b | 0b | 0b | 0b |
+|f_immediate | f_hidden | f_no_flash | length[4:0] |
 
 # IO Registers
 | State: | | | | | | | |
@@ -50,7 +68,7 @@ prog_latest | ram_latest | prog_here | ram_here | 0x00
 
 
 # RAM layout:
-| System | Buffer | P stack >|< Ram Dictionary |< R stack |
+| System | Buffer | P stack >| Ram Dictionary > |< R stack |
 |--------|--------|----------|-----------------|----------|
 | 256 B  | 2kB    | 512 B    |  3.2kB          | 512 B    |
 
@@ -59,9 +77,9 @@ prog_latest | ram_latest | prog_here | ram_here | 0x00
 | s_buffer>  | <in_buffer |
 
 # Code samples, basic Forth intro: 
-Everything that happens in Forth is operation on the stack. Input consists of ascii words separated by whitespace. 
+Everything that happens in Forth is an operation on the stack. Input consists of ascii words separated by whitespace. 
 
-When you type return or enter the forth system engages the interpreter. The Interpreter reads from the `in_buffer` until empty, parsing each whitespace separated token in turn according to the following logic:
+When you type return/enter the forth system engages the interpreter. The Interpreter reads what you've typed so far from the `in_buffer` until empty, parsing each whitespace separated token in turn according to the following logic:
 -   Is it in the Dictionary? 
        - Execute Word
 - Is it a valid number?     
@@ -82,10 +100,10 @@ to print the stack non-destructively, type `.s`
 ```
 The number in the angle brackets tells us how many items are on the parameter stack.
 
-To pop the top element from the stack and print to screen as a number, use `.` (dot)
+To pop the top element from the stack and display as a number, use `.` (dot)
 
 
-Now that we know that 1, 2, and 3 are on the stack, we can print each item. 
+Now that we know that 1, 2, and 3 are on the stack, we can return each item. 
 
 ## Formatting Results
 
@@ -131,15 +149,65 @@ The arithmetic words `/mod` (division / modulo) and `sqrt` (square root) return 
 25 sqrt swap \n . \s .
 5 0 ok
 ```
-Notice that I've added the word `swap` (switch the top two items) to make sure it prints the quotient first.
+Notice that I've added the word `swap` (switch the top two items on the stack) to make sure it displays the quotient first.
 
-## Configuring the Number system
-The number system can be configured with the words `base!`, `sign`, `unsign`, and `digits`. Shortcuts `hex`, `dec`, and `bin` provide for switching between the most common radixes. 
+## The Number System
+The number system can be configured with the words `base!`,`base@`, `sign`, `unsign`, and `digits`. 
 
-Keep in mind that this isn't a type conversion, but rather, you're changing how the forth system displays numbers.
+Shortcuts `hex`, `dec`, and `bin` provide for switching between the most common radixes. 
+
+Keep in mind that this isn't a type conversion. At the end of the day, everything is binary. Rather, these words affect how numbers are accepted and displayed by the system. You could think of it like shifting gears in a manual transmission.
+
+for example:
+```forth
+hex ok        // shift to hexadecimal
+ff ok         // enter ff
+bin ok        // shift to binary
+.11111111 ok  // display (binary)
+```
+This also changes what numbers are considered acceptable. 
+```forth
+ff syntax error    // system still set to binary
+0100 ok
+```
+To query the current base and display in decimal:
+```forth
+base@ dup dec \n . base!
+2 ok   // it's binary
+```
+Here I'm also making a copy of the previous base before switching to decimal, then replacing it using `base!` (set base), and displaying the result on a new line with `\n`.
+
+### Constant Radix sigils:
+
+| `$` | `#` | `%` |
+|-|-|-|
+|hexadecimal|decimal| binary|
+
+For convienence, numbers beginning with `$`, `#`, or `%` are interpreted with a constant base regardless of how the number system is curently configured. 
+
+```forth
+$ff bin .11111111 ok       
+#16 hex .10 ok
+%0100 dec .4 ok
+
+$g syntax error  // 'g' out of range for base 16
+```
+
+To set an arbitrary base up to 36, use this line
+```forth
+[your radix] base! 
+```
+for example:
+```forth
+#36 base! ok
+xyz ok        // now 'xyz' is a valid number
+.s <1> -glh  ok
+unsign \n .  
+xyz ok        // (display unsigned to get original)
+```
 
 ### Signed/unsigned
-Any time you enter a number with a negative sign, that will always be interpreted as 16 bit two's compliment.
+Any time you enter a number with a negative sign, it will always be interpreted as 16 bit two's compliment.
 ```forth
 -12 .-12 ok
 unsign ok
@@ -147,45 +215,62 @@ unsign ok
 ```
 After the above example, all numbers will continue to be displayed as unsigned until either `sign` is called or a system reset occurs. 
 
-### Radix
-To non-destructively check what base the system is currently using, enter:
-```forth
-base@ dup dec . base!
-```
-This line first fetches the current base and places it on the stack, then duplicates it, sets the base to decimal, displays the previous base, then resets the base to the previous value. 
-
-The current base is one factor in determining whether or not a number input is valid.
-
-```forth
-ff bin .11111111 ok   // convert 0xff to binary
-
-ff syntax error  // 'f' is greater than base '2'
-
-hex ok
-ff ok         // 0xff is now acceptable
-.s <1> ff  ok
-```
-
-To set an arbitrary base up to 36, use this line
-```forth
-dec [your radix] base! 
-```
-for example:
-```forth
-dec 36 base! ok
-xyz ok        // now 'xyz' is a valid number
-.s <1> -glh  ok   
-unsign \n .  // display top of stack as unsigned
-xyz ok
-```
 
 ### Leading Zeros
 
-`digits` sets the minimum size (in digits) when numbers are displayed. If a number has more digits, nothing is altered, but if it has fewer, leading zers are added. 
+`digits` sets the minimum size (in digits) when numbers are displayed. If a number has more digits, nothing is altered, but if it has fewer, it's padded with leading zeros. 
 ```forth
 4 digits ok
 ff .00ff ok
 ```
+
+### Memory Ops
+
+`@` and `!` are used to read and write to memory respectively
+
+```forth
+42 $30e3 ! ok        // save 42 to memory at 30e3
+$30e3 @ ok           // fetch from 30e3
+.42 ok               
+```
+
+### Debugging
+
+Often it's necessary to probe larger streches of memory. For this, `dump` and `print` are helpful tools. 
+
+`dump` takes (address, length) on the stack, and displays that area as numbers. 
+
+`print` takes the same arguments and tries to display that data as text.
+
+```forth
+hex #4 digits  ok     // configure format
+
+
+// dump first 20 words at 0x4000
+
+$4000 #40 dump       
+ef0f e31f bf0d bf1e 24aa e001 2eb0 
+e011 ed08 bf04 9310 0061 e105 e011 9300 
+0868 9310 0869 e000 9300 0865 ec08 9300 
+0866 e203 9300 0867 e404 9300 05e2 e100 
+9300 0421 e200 9300 0422 e008 9300 0434 
+9300  ok
+
+
+// dump first 4 words at 0x2800, this time in binary
+
+bin #16 digits  ok
+
+$2800 #4 dump
+0100110101001110 0100110101001110 0100111000011110 0011010011001111  ok
+```
+To read back 40 chars of the last dictionary entry as text
+```
+\n &prog.latest @ #40 print
+>syscheck�����=����     ����� ok
+```
+Here we see the most recent word is `syscheck`, and the rest is machine code
+
 
 # todo 
 - compiler / interpreter state

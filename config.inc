@@ -25,8 +25,8 @@
 
         .equ        buffer_start = INTERNAL_SRAM_START + 0xFF   ; 256 bytes for System (same as eeprom)
         .equ        buffer_size = 0x7D0                         ; 2K bytes for buffer
-        .equ        r_stack_max = 0x200                         ; 512 bytes; 128 addrs
-        .equ        p_stack_max = 0x200                         ; 512 bytes; 128 params
+        .equ        r_stack_min = 0x200                         ; 512 bytes; 128 addrs
+        .equ        p_stack_max = 0x400                         ; 512 bytes; 128 params
 ;       Remaining space goes to Ram Dictionary                  2720 bytes
 
 ;       System memory:

@@ -87,3 +87,7 @@
         st      X+, @1
 .endmacro
 
+.macro ccp_spm_unlock               ; write spm signature to config change protection register
+        ldi     r16, 0x9d
+        out     CPU_CCP, r16 
+.endmacro

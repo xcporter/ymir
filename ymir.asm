@@ -38,7 +38,7 @@
 ;   | 2 B          | n B          | n B        |
 ;                 /                \
 ;    ____________/                  \__________________
-;   |f_immediate | f_hidden | f_indirect | Length[4:0] |
+;   |f_immediate | f_hidden | f_no_flash | Length[4:0] |
 
 ;;  IO Registers ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ;       State: | neg | 0b | 0b | 0b | 0b | 0b | 0b | compile |
@@ -56,14 +56,14 @@
 ;   0x00 : prog_latest | ram_latest | prog_here | ram_here | 0x00
 
 ;; RAM layout: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-;  start:| System | Buffer | P stack >|< Ram Dictionary |< R stack |:end
-;        | 256 B  | 2kB    | 512 B    |  3.2kB          | 512 B    |
+;  start:| System | Buffer | P stack >| Ram Dictionary> |< R stack  |:end
+;        | 256 B  | 2kB    | 1024 B   |  2.6kB          | min 512 B |
 ;                /          \________________________
 ;               | pad 256B | w_buffer >|< in_buffer  |
 
         .equ        p_stack_start = buffer_start + buffer_size
         .equ        w_buffer_start = buffer_start + 0x100
-        .equ        dict_start = RAMEND - r_stack_max
+        .equ        dict_start = p_stack_start + p_stack_max
 
 ;; Setup ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         .cseg
@@ -90,6 +90,7 @@
         ijmp
 
 ;; Terminal Core ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+;       Kernel and execution flow
 do:
         push    YH
         push    YL
@@ -183,17 +184,6 @@ def_asm         "unsign", 6, $0, unsign
         cbi     num_format, 7
         jmp     next
 
-; Access pointers ----------------
-
-def_const       "&prog.latest", 12, $0, p_latest_pt, SRAM_START
-def_const       "&ram.latest", 11, $0, r_latest_pt, SRAM_START + 0x02
-
-def_const       "&prog.here", 10, $0, p_here_pt, SRAM_START + 0x04
-def_const       "&ram.here", 9, $0, r_here_pt, SRAM_START + 0x06
-
-
-
-
 ; (digits --) set length constant for how nums are displayed
 ; numbers that exceed the digit size are unaffected
 ; smaller numbers are padded with zeros
@@ -204,6 +194,14 @@ def_asm         "digits", 6, $0, digits
         or      r17, r16                ; add mask to new digit value
         out     num_format, r17
         jmp     next
+
+; Access pointers ----------------
+
+def_const       "&prog.latest", 12, $0, p_latest_pt, SRAM_START
+def_const       "&ram.latest", 11, $0, r_latest_pt, SRAM_START + 0x02
+
+def_const       "&prog.here", 10, $0, p_here_pt, SRAM_START + 0x04
+def_const       "&ram.here", 9, $0, r_here_pt, SRAM_START + 0x06
 
 def_const       "pad", 4, $0, pad_start, buffer_start
 
@@ -292,23 +290,18 @@ def_asm         "r>", 2, $0, from_r
         jmp     next
 
 def_asm         "@r", 2, $0, fetch_r
-        in      ZL, SPL             ; load stack pointer into Z
-        in      ZH, SPH
-        ld      r17, Z+             ; get word from return stack
-        ld      r16, Z+
+        pop     r16
+        pop     r17 
+        push    r17 
+        push    r16
         p_push_word  r16, r17       ; put it onto the param stack
         jmp     next
 
 def_asm         "!r", 2, $0, store_r
         p_pop_word   r16, r17       ; get top of p stack
-        in      ZL, SPL             ; load stack pointer into Z
-        in      ZH, SPH
-        st      Z, r17              ; write to stack
-        sbiw    ZL, 0x01
-        st      Z, r16              ; write to stack
-        sbiw    ZL, 0x01
-        out     SPL, ZL             ; put back the pointer
-        out     SPH, ZH
+        adiw    XL, 0x02            ; offset p stack pointer
+        push    r17
+        push    r16 
         jmp     next
 
 def_asm         "rdrop", 5, $0, r_drop
@@ -573,9 +566,6 @@ _sqrt_end:
         ror     r0
         ret
 
-
-
-
 ;; Comparison --------------------
 _do_compare:
         p_pop_word  r16, r17
@@ -716,15 +706,15 @@ def_asm         ">>", 2, $0, b_shr  ;(num to shift, shift x times)
 def_asm         "!", 1, $0, store    ; ( val, addr --)
         p_pop_word  ZL, ZH              ; load address
         p_pop_word  r16, r17            ; load byte
-        st      Z+, r17
         st      Z+, r16
+        st      Z+, r17
         jmp     next
 
 def_asm         "!+", 2, $0, store_inc       ; ( val, addr -- addr + 1)
         p_pop_word  ZL, ZH              ; load address
         p_pop_word  r16, r17
-        st      Z+, r17
         st      Z+, r16
+        st      Z+, r17
         p_push_word  ZL, ZH
         jmp     next
 
@@ -743,12 +733,59 @@ def_asm         "@+", 2, $0, fetch_inc ; (addr -- next_addr, value)
         p_push_word  r16, r17       ; put value on p_stack
         jmp     next
 
-def_word        "move", 4, $0, move     ; ( from_addr, to_addr, length -- )
-        .dw     dup 
-        .dw     branch_if 
-        .dw     0x0000          ; end if zero
-        
-        .dw     exit
+def_asm         "<move<", 5, $0, double_reverse_move
+        push     YH
+        push     YL
+
+        p_pop_word      YL, YH  ; destination
+        p_pop   r18             ; length
+        p_pop_word      ZL, ZH
+
+    _rr_move_loop:
+        cp      r18, zeroR
+        breq    _move_done
+        dec     r18 
+        ld      r16, Z
+        sbiw    ZL, 0x01
+        st      Y, r16
+        sbiw    YL, 0x01
+        rjmp    _rr_move_loop
+
+def_asm         "move<", 5, $0, reverse_move
+        push     YH
+        push     YL
+
+        p_pop_word      YL, YH  ; destination
+        p_pop   r18             ; length
+        p_pop_word      ZL, ZH
+
+    _r_move_loop:
+        cp      r18, zeroR
+        breq    _move_done
+        dec     r18 
+        ld      r16, Z+
+        st      Y, r16
+        sbiw    YL, 0x01
+        rjmp    _r_move_loop
+def_asm        "move", 4, $0, move     ; ( from_addr, length, to_addr -- )
+        push     YH
+        push     YL
+
+        p_pop_word      YL, YH  ; destination
+        p_pop   r18             ; length
+        p_pop_word      ZL, ZH
+
+    _move_loop:
+        cp      r18, zeroR
+        breq    _move_done
+        dec     r18 
+        ld      r16, Z+
+        st      Y+, r16
+        rjmp    _move_loop
+    _move_done:
+        pop      YL
+        pop      YH
+        jmp     next 
 
 ;; String Ops --------------------
 def_asm         "litstring", 9, $0, litstring
@@ -779,6 +816,50 @@ def_asm         "print", 5, $0, print
         ret
     print_tx:  using_usb_tx     print_before, print_during, $0
 
+def_word        "dump", 4, $0, dump
+        .dw     cr 
+
+        .dw     to_r        ; put length on return stack
+
+        .dw     literal 
+        .dw     0x0000
+
+        .dw     dup 
+        .dw     fetch_r
+        .dw     not_equal
+        .dw     branch_if
+        .dw     0x0012          ; end if count == length
+
+        .dw     incr             
+
+        .dw     dup 
+        .dw     literal 
+        .dw     0x0008
+        .dw     div_mod    
+        .dw     swap 
+        .dw     drop 
+        .dw     branch_if
+        .dw     0x000d          ; wrap text?     
+
+        .dw     to_r 
+
+        .dw     fetch_inc
+        .dw     dot 
+        .dw     sp 
+
+        .dw     from_r 
+        .dw     branch 
+        .dw     0xffed 
+
+        .dw     from_r
+        .dw     drop_two   
+        .dw     drop        
+        
+        .dw     exit
+
+        .dw     cr                      ; do wrap
+        .dw     branch 
+        .dw     0xfff4                  ; return                          
 
 ;; Branching ---------------------
 def_asm         "branch", 6, $0, branch
@@ -1137,10 +1218,10 @@ def_asm         "find", 4, $0, find
         push    YH                          ; put away instruction pointer for now
         push    YL  
 
-        ldi     r18, Low(dict_start)        ; check if any dict in ram (ram_latest == dict_start)
+        ldi     r18, Low(dict_start)        ; check if any dict in ram (ram_here == dict_start)
         ldi     r19, High(dict_start)
-        ldi     YL, Low(SRAM_START + 0x02)
-        ldi     YH, High(SRAM_START + 0x02)
+        ldi     YL, Low(SRAM_START + 0x06)
+        ldi     YH, High(SRAM_START + 0x06)
         ld      ZL, Y+                      ; load ram latest into Z
         ld      ZH, Y+
                     
@@ -1227,15 +1308,63 @@ def_asm         ">xt", 3, $0, to_xt
         jmp     next
 
 ;; Compiling ---------------------
-; def_asm         "create", 6, $0, create
+def_word         "create", 6, $0, create
+        .dw     word            ; (name?, len)
+        .dw     dup             ; (name?, len, len)
+        .dw     branch_if 
+        .dw     0x0006          ; go to error if no word found
+
+        .dw     r_latest_pt     ; write latest to here 
+        .dw     fetch     
+        .dw     r_here_pt       ; (latest, here)
+        .dw     fetch 
+        .dw     store 
+        .dw     r_here_pt 
+        .dw     fetch 
+        .dw     dup            ; (here, here)           update latest to here
+        .dw     r_latest_pt    ; (here, here, &latest)
+        .dw     store          ; (here)
+
+        .dw     incr 
+        .dw     incr            ; (here+2)
+        .dw     dup_two         ; (here+2, len, here+2)
+        .dw     store           ; store length to here+2
+        .dw     incr            ; (name, len, here+3)
+
+        .dw     dup_two         ; (...len, here+3)
+        .dw     addition        ; (...new here )
+        .dw     to_r            ; stack new here on r stack
+
+        .dw     move            ; write name to here+3
+
+        .dw     from_r          ; update here pointer
+        .dw     r_here_pt
+        .dw     store           
+
+
+        .dw     exit
+        .dw     syn_err         ; to error
+        
 ; def_asm         ",", 1, $0, comma
 ; def_asm         "[", 1, f_immediate, engage
 ; def_asm         "]", 1, $0, disengage
 ; def_word        ":", 1, $0, colon
 ; def_word        ";", 1, f_immediate, semicolon
 ; def_asm         "immediate", 9, f_immediate, immediate
-; def_asm         "hidden", 6, $0, hidden
-; def_asm         0x27, 1, $0, get_xt 
+def_asm         "hide", 4, $0, hide
+        p_pop_word      ZL, ZH
+        adiw    ZL, 0x02
+        ld      r16, Z 
+        ori     r16, 0b01000000
+        st      Z, r16
+        jmp     next 
+def_asm         "unhide", 6, $0, unhide
+        p_pop_word      ZL, ZH
+        adiw    ZL, 0x02
+        ld      r16, Z 
+        andi     r16, 0b10111111
+        st      Z, r16
+        jmp     next 
 ;; Interpreting ------------------
 def_word        "quit", 4, $0, main              ; Main system loop
         .dw     reset                            ;  
@@ -1244,28 +1373,44 @@ def_word        "quit", 4, $0, main              ; Main system loop
         .dw     branch                           ;  
         .dw     0xfffd                           ; -3
 
-def_word        "test", 4, $0, test 
-        .dw     unsign
-        .dw     literal
-        .dw     0x0004
-        .dw     digits
-        .dw     literal
-        .dw     0x1400
-        .dw     literal
-        .dw     0x000a
-        .dw     dup 
-        .dw     branch_if 
-        .dw     0x0008
-        .dw     dup
-        .dw     dot 
-        .dw     sp 
-        .dw     decr 
-        .dw     branch 
-        .dw     0xfff9
-        .dw     drop
-        .dw     cr
-        .dw     exit
+; def_asm       "test", 4, $0, test 
+;         call    pagebuf_clear
+;         ldi     r16, 0xbb
+;         ldi     r18, 0x00
+;         ldi     r19, 0x14
 
+;         ldi     ZL, Low(NVMCTRL_ADDRL)
+;         ldi     ZH, High(NVMCTRL_ADDRL)
+;         st      Z+, r18
+;         st      Z+, r19
+
+;         movw    ZL, r18
+
+;         st      Z+, r16 
+;         st      Z+, r16 
+;         st      Z+, r16 
+;         st      Z+, r16 
+;         st      Z+, r16 
+;         st      Z+, r16 
+;         st      Z+, r16 
+;         st      Z+, r16 
+;         st      Z+, r16 
+;         st      Z+, r16 
+;         st      Z+, r16 
+;         st      Z+, r16 
+
+;         ldi     ZL, Low(NVMCTRL_CTRLA)
+;         ldi     ZH, High(NVMCTRL_CTRLA)
+
+;         call    nvm_wait
+
+        
+
+;         ldi     r16, 0x01
+;         ccp_spm_unlock
+;         st      Z, r16
+
+;         jmp     next
 
 def_asm         "accept", 6, $0, accept         ; read from tty into buffer until cr
         mov     ZL, BWL
@@ -1439,6 +1584,7 @@ load_data_seg:
 
         st      Y+, r17
         st      Y+, r16
+        
         rjmp    load_ds_loop
 
     load_ds_end:
@@ -1506,6 +1652,29 @@ do_const_b:
         p_push     r16                     ; puts on p stack
         jmp      next
 
+
+nvm_wait:
+        ldi     ZL, Low(NVMCTRL_STATUS)
+        ldi     ZH, High(NVMCTRL_STATUS)
+
+        ld      r16, Z
+        sbrc    r16, 1
+        rjmp    nvm_wait
+
+        sbrc    r16, 0
+        rjmp    nvm_wait
+        ret 
+pagebuf_clear:
+        rcall   nvm_wait
+
+        ldi     ZL, Low(NVMCTRL_CTRLA)
+        ldi     ZH, High(NVMCTRL_CTRLA)
+        ldi     r17, 0x04
+        ccp_spm_unlock
+
+        st      Z, r17
+        ret
+
 ;;  rx/tx ------------------------
 
 
@@ -1521,7 +1690,7 @@ prog_here:
     prog_latest:
         .dw     (word_link << 1) + 0x4000              
     ram_latest:
-        .dw     dict_start              
+        .dw     (word_link << 1) + 0x4000             
     prog_here_e:
         .dw     (prog_here << 1) + 0x4000              
     ram_here:
