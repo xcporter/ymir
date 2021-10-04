@@ -2,6 +2,14 @@
 ##  A simple forth for the atmega 4809
 It seems that the best way to know forth is to write one yourself. To that end this project is primarily educational, but may perhaps be practical as well, given that most forths which run on avr have yet to be ported to the 4809.
 
+This forth is primarily inspired by Jonesforth, Flashforth, and the descriptions provided in "Starting Forth" as well as "Threaded Interpreted Languages". Though I will eventually include avr self programming routines, my design goals differ from those of flashforth. I'm not particularly concerned with the ANS standard, but there will be significant overlap in structure with standard Forth. 
+
+Ymir is directly threaded. I will eventually add an indirect threading routine to make it possible to run words from ram. 
+
+I intend Ymir to be minimal, and as flexible as possible. This means that it will be inherently less safe than flashforth. You will be allowed to overwrite the kernel, if you like. I intend to eventually allow multiple concurrency actors to access the interpreter, to allow terminal access over multiple UART or serial connections. 
+
+At the moment, training wheels are still on, in terms of how the transmission routines are done. I will eventually migrate to more modular routines once the dictionary core is self hosting and thoroughly tested. 
+
 ##  Compiling
 I use the avra toolchain, and avrdude to flash. For avrdude, be sure to use the version included with the arduino environment. Also, to trigger the programmer (if you're using the arduino nano every) you'll have to make a connection at 1200 baud, then immediately disconnect and engage avrdude. 
 
@@ -183,7 +191,7 @@ Here I'm also making a copy of the previous base before switching to decimal, th
 |-|-|-|
 |hexadecimal|decimal| binary|
 
-For convienence, numbers beginning with `$`, `#`, or `%` are interpreted with a constant base regardless of how the number system is curently configured. 
+For convienence, numbers beginning with `$`, `#`, or `%` are interpreted with a constant base regardless of how the number system is currently configured. 
 
 ```forth
 $ff bin .11111111 ok       
@@ -273,13 +281,29 @@ Here we see the most recent word is `syscheck`, and the rest is machine code
 
 
 # todo 
-- compiler / interpreter state
-- flash to program memory
-- assembler? 
-- persistent string buffer
-- arrow keys
+- [ ] compiler / interpreter state
 
-- multitasking
-- eeprom configuration
- - system for configuring / switching uart tty and pinout
- - system for configuring clock / tty baud
+- [ ] flash to program memory
+
+- [ ] Floating point (separate stack?)
+
+- [ ] Vectored Execution
+       - [ ] Init
+       - [ ] Main loop
+
+- [ ] Coroutines
+       - [ ] Actor Data Structure
+                - Stack
+                - TTY config
+                - TIB
+- [ ] uart tty and pinout configuration
+
+- [ ] configuring clock / tty baud configuration
+
+- [x] eeprom configuration
+
+## nice to haves
+- [ ] assembler
+
+- [ ] editor in ram?
+
