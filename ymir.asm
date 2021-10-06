@@ -69,16 +69,21 @@
         .cseg
         .org    0x0000
 
+        ldi     ZL, Low(RSTCTRL_RSTFR)  ; get reset reason
+        ldi     ZH, High(RSTCTRL_RSTFR)
+        ld      r5, Z
+
         ldi     r16, Low(RAMEND)        ; init stack pointer
         ldi     r17, High(RAMEND)
         out     CPU_SPL, r16
         out     CPU_SPH, r17
 
-        clr     zeroR                   ; set up constant registers (0 and 1)
-        ldi     r16, 0x01
-        mov     oneR, r16
-
+        clr     zero                   ; set up constant registers (0 and 1)
+        clr     one 
+        inc     one 
         setup_usb
+
+        call    reset_reason 
         call    load_data_seg
         call    reset_p
         call    reset_sysreg
@@ -315,8 +320,8 @@ def_word         ".s", 2, $0, print_p_stack
         .dw     0x003c
         .dw     emit 
 
-        .dw     p_stack_pt 
-        .dw     p_start
+        ; .dw     p_stack_pt 
+        ; .dw     p_start
         .dw     subtraction
         .dw     literal 
         .dw     0x0001 
@@ -353,7 +358,7 @@ def_word        "pick", 4, $0, pick   ; (stack index 0=bottom, n=top)
         .dw     literal 
         .dw     0x0001
         .dw     b_shl 
-        .dw     p_start 
+        ; .dw     p_start 
         .dw     addition
         .dw     fetch
         .dw     exit
@@ -883,69 +888,69 @@ def_asm         "?branch", 7, $0, branch_if
 
 ;; I/O ---------------------------
 def_asm         "key", 3, $0, key       ; pop next char off in buffer
-        mov     ZL, BRL 
-        mov     ZH, BRH
-        cp      ZL, BWL                ; check if buffer consumed (read=write)
-        cpc     ZH, BWH
-        breq    key_empty
-        ld      r16, Z
-        sbiw    ZL, 0x01
-        mov     BRL, ZL
-        mov     BRH, ZH
-        p_push  r16
+        ; mov     ZL, BRL 
+        ; mov     ZH, BRH
+        ; cp      ZL, BWL                ; check if buffer consumed (read=write)
+        ; cpc     ZH, BWH
+        ; breq    key_empty
+        ; ld      r16, Z
+        ; sbiw    ZL, 0x01
+        ; mov     BRL, ZL
+        ; mov     BRH, ZH
+        ; ppush  r16
         jmp     next
 key_empty:
         call    usb_rx_wait             ; if buffer empty accept one char
         lds     r16, USART3_RXDATAL
-        p_push  r16
+        ppush  r16
         jmp     next
 
 def_asm         "emit", 4, $0, emit
-        p_pop   r16                 ; load char from stack
+        ppop   r16                 ; load char from stack
         call    usb_tx_wait
         sts     USART3_TXDATAL, r16 
         jmp     next
 
 def_asm         "word", 4, $0, word
-        call    reset_w_buffer
-        clr     r18                    ; r18: length counter 
-        mov     ZL, BRL                ; load in read pointer
-        mov     ZH, BRH
-        ldi     r17, 0x20              ; load space for compare
-    word_1:
-        cp      ZL, BWL                 ; check if buffer consumed or space (read=write)
-        cpc     ZH, BWH
-        breq    word_empty
-        ld      r16, Z
-        sbiw    ZL, 0x01
-        cp      r16, r17
-        breq    word_1                  ; loop if space
-    word_2:
-        inc     r18                     ; store next char in s buffer
-        mov     BRL, ZL                
-        mov     BRH, ZH
-        movw    ZL, WL 
-        st      Z+, r16
-        movw    WL, ZL
-        mov     ZL, BRL                
-        mov     ZH, BRH
+;         call    reset_w_buffer
+;         clr     r18                    ; r18: length counter 
+;         mov     ZL, BRL                ; load in read pointer
+;         mov     ZH, BRH
+;         ldi     r17, 0x20              ; load space for compare
+;     word_1:
+;         cp      ZL, BWL                 ; check if buffer consumed or space (read=write)
+;         cpc     ZH, BWH
+;         breq    word_empty
+;         ld      r16, Z
+;         sbiw    ZL, 0x01
+;         cp      r16, r17
+;         breq    word_1                  ; loop if space
+;     word_2:
+;         inc     r18                     ; store next char in s buffer
+;         mov     BRL, ZL                
+;         mov     BRH, ZH
+;         movw    ZL, WL 
+;         st      Z+, r16
+;         movw    WL, ZL
+;         mov     ZL, BRL                
+;         mov     ZH, BRH
 
-        cp      ZL, BWL                 ; check if buffer consumed
-        cpc     ZH, BWH
-        breq    word_result
-        ld      r16, Z                  ; load next char and check if space
-        sbiw    ZL, 0x01
-        cp      r16, r17
-        breq    word_result
+;         cp      ZL, BWL                 ; check if buffer consumed
+;         cpc     ZH, BWH
+;         breq    word_result
+;         ld      r16, Z                  ; load next char and check if space
+;         sbiw    ZL, 0x01
+;         cp      r16, r17
+;         breq    word_result
 
-        rjmp    word_2
-    word_result:
-        call    push_w_start
-        p_push  r18
-        jmp     next
-    word_empty:
-        ldi     r16, 0x00
-        p_push  r16
+;         rjmp    word_2
+;     word_result:
+;         call    push_w_start
+;         ppush  r18
+;         jmp     next
+;     word_empty:
+;         ldi     r16, 0x00
+;         ppush  r16
         jmp     next
 
 
@@ -1120,9 +1125,8 @@ def_asm         ">num", 4, $0, string_to_num            ; (addr, length -- num, 
 ;|      r0 length counter
 def_asm         "num>", 4, $0, num_to_string
         clr     r0                              ; length counter [r0]
-        ldi     ZL, Low(buffer_start)           ; load pad address into Z
-        ldi     ZH, High(buffer_start)
-        p_pop_word   r22, r23                   ; load num from stack
+        ; ldi     ZL, Low(buffer_start)           ; load pad address into Z
+        ; ldi     ZH, High(buffer_start)
         sbic    num_format, 7                   ; if using signed numbers, do sign
         rjmp    _nts_sign
     _nts_start:
@@ -1201,10 +1205,8 @@ def_asm         "num>", 4, $0, num_to_string
         mov     r0, r1                  ; put back counter for write
         rjmp    _nts_write_cont
     _nts_done:   
-        ldi     ZL, Low(buffer_start)           ; put string addr / length on stack
-        ldi     ZH, High(buffer_start)
-        p_push_word     ZL, ZH
-        p_push          r1
+        ; ldi     ZL, Low(buffer_start)           ; put string addr / length on stack
+        ; ldi     ZH, High(buffer_start)
         jmp     next
         
 
@@ -1218,8 +1220,8 @@ def_asm         "find", 4, $0, find
         push    YH                          ; put away instruction pointer for now
         push    YL  
 
-        ldi     r18, Low(dict_start)        ; check if any dict in ram (ram_here == dict_start)
-        ldi     r19, High(dict_start)
+        ; ldi     r18, Low(dict_start)        ; check if any dict in ram (ram_here == dict_start)
+        ; ldi     r19, High(dict_start)
         ldi     YL, Low(SRAM_START + 0x06)
         ldi     YH, High(SRAM_START + 0x06)
         ld      ZL, Y+                      ; load ram latest into Z
@@ -1335,7 +1337,7 @@ def_word         "create", 6, $0, create
         .dw     addition        ; (...new here )
         .dw     to_r            ; stack new here on r stack
 
-        .dw     move            ; write name to here+3
+        ; .dw     move            ; write name to here+3
 
         .dw     from_r          ; update here pointer
         .dw     r_here_pt
@@ -1413,41 +1415,41 @@ def_word        "quit", 4, $0, main              ; Main system loop
 ;         jmp     next
 
 def_asm         "accept", 6, $0, accept         ; read from tty into buffer until cr
-        mov     ZL, BWL
-        mov     ZH, BWH
-        rcall   tty_rx
-        jmp     next
-    before_each_rx:
-        lds     r16, USART3_RXDATAL         ; load next char from serial
-        cpi     r16, $0D                    ; check if cr
-        ret
-    on_each_rx:
-        st      Z, r16                      ; store and increment recieved char
-        sbiw    ZL, 0x01                    ; decrement Z (in buffer grows down!)
-        cpi     r16, 0x7F                    ; check if backspace
-        breq    do_backspace
-        rcall   usb_tx_wait                 ; echo back each character typed in tty
-        sts     USART3_TXDATAL, r16   
-    on_each_rx_skip:
-        ret  
-    rx_end:
-        mov     BWL, ZL
-        mov     BWH, ZH
-        ret
-    tty_rx:     using_usb_rx    before_each_rx, on_each_rx, rx_end
+;         mov     ZL, BWL
+;         mov     ZH, BWH
+;         rcall   tty_rx
+;         jmp     next
+;     before_each_rx:
+;         lds     r16, USART3_RXDATAL         ; load next char from serial
+;         cpi     r16, $0D                    ; check if cr
+;         ret
+;     on_each_rx:
+;         st      Z, r16                      ; store and increment recieved char
+;         sbiw    ZL, 0x01                    ; decrement Z (in buffer grows down!)
+;         cpi     r16, 0x7F                    ; check if backspace
+;         breq    do_backspace
+;         rcall   usb_tx_wait                 ; echo back each character typed in tty
+;         sts     USART3_TXDATAL, r16   
+;     on_each_rx_skip:
+;         ret  
+;     rx_end:
+;         mov     BWL, ZL
+;         mov     BWH, ZH
+;         ret
+;     tty_rx:     using_usb_rx    before_each_rx, on_each_rx, rx_end
 
-    do_backspace:
-        adiw    ZL, 0x02                     ; drop one from in buffer
-        ldi     r16, $08                     ; send backspace
-        call    usb_tx_wait
-        sts     USART3_TXDATAL, r16 
-        ldi     r16, $20                    ; send space
-        call    usb_tx_wait
-        sts     USART3_TXDATAL, r16 
-        ldi     r16, $08                    ; send backspace
-        call    usb_tx_wait
-        sts     USART3_TXDATAL, r16
-        ret
+;     do_backspace:
+;         adiw    ZL, 0x02                     ; drop one from in buffer
+;         ldi     r16, $08                     ; send backspace
+;         call    usb_tx_wait
+;         sts     USART3_TXDATAL, r16 
+;         ldi     r16, $20                    ; send space
+;         call    usb_tx_wait
+;         sts     USART3_TXDATAL, r16 
+;         ldi     r16, $08                    ; send backspace
+;         call    usb_tx_wait
+;         sts     USART3_TXDATAL, r16
+;         ret
 
 def_word        '.', 1, $0, dot
         .dw     num_to_string
@@ -1543,8 +1545,8 @@ def_asm        "abort", 5, $0, abort
         jmp     main 
 
 def_asm         "syscheck", 8, $0, syscheck
-        ldi     r16, Low(p_stack_start)
-        ldi     r17, High(p_stack_start)
+        ; ldi     r16, Low(p_stack_start)
+        ; ldi     r17, High(p_stack_start)
         cp      XL, r16
         cpc     XH, r17
         brlt    syscheck_under
@@ -1605,30 +1607,30 @@ reset_sysreg:
         out     num_format, r17                   ; clear number fmt
         ret 
 reset_w_buffer:
-        ldi     WL, Low(buffer_start + 0x100)
-        ldi     WH, High(buffer_start + 0x100)
-        ret
+        ; ldi     WL, Low(buffer_start + 0x100)
+        ; ldi     WH, High(buffer_start + 0x100)
+        ; ret
 reset_in_buffer:
-        ldi     r16, Low(p_stack_start - 0x02)
-        ldi     r17, High(p_stack_start - 0x02)
-        mov     BRL, r16
-        mov     BRH, r17
-        mov     BWL, r16
-        mov     BWH, r17
+        ; ldi     r16, Low(p_stack_start - 0x02)
+        ; ldi     r17, High(p_stack_start - 0x02)
+        ; mov     BRL, r16
+        ; mov     BRH, r17
+        ; mov     BWL, r16
+        ; mov     BWH, r17
 
         ret
 
 push_w_start:
-        ldi     r16, Low(w_buffer_start)
-        ldi     r17, High(w_buffer_start)
-        p_push_word     r16, r17
-        ret
+        ; ldi     r16, Low(w_buffer_start)
+        ; ldi     r17, High(w_buffer_start)
+        ; _ppush     r16, r17
+        ; ret
 
 reset_p:
-        ldi     XL, Low(p_stack_start)      ; reset parameter stack
-        ldi     XH, High(p_stack_start)
+        ; ldi     XL, Low(p_stack_start)      ; reset parameter stack
+        ; ldi     XH, High(p_stack_start)
 
-        ret
+        ; ret
 
 _flash_to_global:                ; multiply by 2 and add 0x4000 for flash mem (using ld)
         lsl     ZL
@@ -1694,7 +1696,7 @@ prog_here:
     prog_here_e:
         .dw     (prog_here << 1) + 0x4000              
     ram_here:
-        .dw     dict_start              
+        ; .dw     dict_start              
     default_base:
         .dw     0x000A   
 
