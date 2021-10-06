@@ -12,6 +12,28 @@
 
 ;; Configuration ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+;; Reserved Registers ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+;       SP: Return stack pointer
+;       Z:  Working Pointer: program memory read/write, indirect execution
+        .def            IH = r29        ; Instruction Pointer
+        .def            IL = r28
+        .def            PH = r27        ; Stack Pointer
+        .def            PL = r26 
+        .def            TOSH = r25      ; Top of Stack Cache
+        .def            TOSL = r24 
+        .def            ACBH = r23      ; Accumulator B
+        .def            ACBL = r22 
+        .def            ACAH = r21      ; Accumulator A
+        .def            ACAL = r20 
+       
+        .def            zero = r10      ; constant Zero
+        .def            one = r11       ; constant One
+
+;; Constants ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+;       Word header flags 
+        .equ    f_immediate = 0x80
+        .equ    f_hidden = 0x40
+        ; .equ    f_in_ram = 0x20
 
 ;       defaults
         .equ        clock_freq  =  0x01     ; clock prescalar of 2 (8MHz clk_per)
@@ -19,28 +41,24 @@
         .equ        usart_mux   =  0x44     ; Map USART3 to USB and USART1 to TX/RX pins
         .equ        base        =  0xA      ; Decimal
 
+;;  IO Registers ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+;       State: | neg | 0b | 0b | 0b | 0b | 0b | 0b | compile |
+        .equ        state           = GPIO_GPIOR0
 
-;       RAM layout:
-;       :| System | Buffer | P stack >|< Ram Dictionary |< R stack |:
+        .equ        base_r          = GPIO_GPIOR1
 
-        .equ        buffer_start = INTERNAL_SRAM_START + 0xFF   ; 256 bytes for System (same as eeprom)
-        .equ        buffer_size = 0x7D0                         ; 2K bytes for buffer
-        .equ        r_stack_min = 0x200                         ; 512 bytes; 128 addrs
-        .equ        p_stack_max = 0x400                         ; 512 bytes; 128 params
-;       Remaining space goes to Ram Dictionary                  2720 bytes
+        .equ        coroutine_pt    = GPIO_GPIOR2
 
-;       System memory:
-;       Defaults stored in eeprom, loaded into ram at runtime
-;
+;       Number format: | sign [default true] | base literal | 0b | padding [5:0] |
+        .equ        num_format      = GPIO_GPIOR3 
 
-;       ...
-;       TODO: Timer registers, SPI, 2 wire, tasks, interrupts
 
-;       Addresses for Latest pointers. v (volitile) = sram, p (persistent) = eeprom
-        .equ        latest_sram_v = INTERNAL_SRAM_START
-        .equ        latest_sram_p = EEPROM_START
-        .equ        latest_prog_v = INTERNAL_SRAM_START + 0x4
-        ; .equ        latest_prog_p = prog_end + 0x4
+;; RAM layout: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+;       | &active block | active block | word buffer  | actor workspace | return stack |
+;       |       2 b     |    1024 b    |     32 b     |     <4430 b     |    ~(512 b)  |
+;       | SRAM_START----->
 
-        .equ        spl = CPU_SPL
-        .equ        sph = CPU_SPH
+        .equ        active_block_start = SRAM_START + 0x02
+        .equ        word_buffer_start = active_block_start + 0x400
+        .equ        actor_ws_start = word_buffer_start + 0x20
+

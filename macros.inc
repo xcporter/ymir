@@ -3,7 +3,7 @@
 ;*      YMIR
 ;*           A simple forth         
 ;*
-;*      MACROS: Mostly for defining forth data structures in asm, with some additional
+;*      MACROS: Shortcuts for defining forth data structures in asm, with some additional
 ;*               convienence functions                
 ;* 
 ;*      Author: Alexander Porter (2021)
@@ -11,11 +11,14 @@
 ;* 
 ;******************************************************************************************
 
-                    .set     word_link = 0x0000
+        .set     word_link = 0x0000     ; macro variable for word link
 
-                    .equ    f_immediate = 0x80
-                    .equ    f_hidden = 0x40
-                    .equ    f_in_ram = 0x20
+;; Word Structure ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+;   | Link Address | Flags/Length | Definition |
+;   | 2 B          | n B          | n B        |
+;                 /                \
+;    ____________/                  \__________________
+;   |f_immediate | f_hidden | f_? | Length[4:0] |
 
 ;; Forth primative
 ;       name_string, name_length, flag, subroutine_name
@@ -63,26 +66,36 @@
         jmp      do_const_b         
 .endmacro
 
+;; push word to return stack (for consistency)
+.macro _push
+        push    @0                  
+        push    @1
+.endmacro 
+.macro _pop
+        push    @1                  
+        push    @0
+.endmacro 
+
 ;;      Parameter stack ops
 ;;      input: Rn
-.macro  p_push 
+.macro  ppush 
         st      X+, @0                  ; store and increment pointer
-        st      X+, zeroR
+        st      X+, zero
 .endmacro
 
-.macro  p_pop
+.macro  ppop
         sbiw    XL, 0x01                ; load and decrement pointer
         ld      @0, -X
 .endmacro
 
 ;;      Parameter stack ops
 ;;      input: RL, RH
-.macro p_pop_word                                       
+.macro _ppop                                     
         ld      @1, -X
         ld      @0, -X
 .endmacro
 
-.macro  p_push_word 
+.macro  _ppush
         st      X+, @0              ; store and increment pointer
         st      X+, @1
 .endmacro
