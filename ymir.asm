@@ -680,7 +680,7 @@ def_asm         "@+", 2, $0, fetch_inc ; (addr -- next_addr, value)
         ld      r17, Z+
         _ppush  ZL, ZH     
         _ppush  r16, r17       ; put value on p_stack
-        jmp     next 
+        jmp     next
 
 ;; String Ops --------------------
 def_asm         "litstring", 9, $0, litstring
@@ -1547,28 +1547,48 @@ do_const_b:
         ppush     r16                     ; puts on p stack
         jmp      next
 
+reset_reason:
+        ldi     ZL, Low(SRAM_START)
+        ldi     ZH, High(SRAM_START)
 
-nvm_wait:
-        ldi     ZL, Low(NVMCTRL_STATUS)
-        ldi     ZH, High(NVMCTRL_STATUS)
+        ldi     r16, 'U'
+        sbrc    r5, 5
+        st      Z+, r16
+        
+        ldi     r16, 'S'
+        sbrc    r5, 4
+        st      Z+, r16
+        
+        ldi     r16, 'W'
+        sbrc    r5, 3
+        st      Z+, r16
+        
+        ldi     r16, 'E'
+        sbrc    r5, 2
+        st      Z+, r16
+        
+        ldi     r16, 'B'
+        sbrc    r5, 1
+        st      Z+, r16
+        
+        ldi     r16, 'P'
+        sbrc    r5, 0
+        st      Z+, r16
+        
+        movw    r18, ZL
+        ldi     ZL, Low(SRAM_START)
+        ldi     ZH, High(SRAM_START)
+        sub     r18, ZL
+        sbc     r19, ZH 
 
-        ld      r16, Z
-        sbrc    r16, 1
-        rjmp    nvm_wait
+        call    print_tx 
 
-        sbrc    r16, 0
-        rjmp    nvm_wait
-        ret 
-pagebuf_clear:
-        rcall   nvm_wait
-
-        ldi     ZL, Low(NVMCTRL_CTRLA)
-        ldi     ZH, High(NVMCTRL_CTRLA)
-        ldi     r17, 0x04
-        ccp_spm_unlock
-
-        st      Z, r17
         ret
+
+    __rstr_write:
+        st      Z+, r16
+
+
 
 ;;  rx/tx ------------------------
 
