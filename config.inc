@@ -42,7 +42,8 @@
         .equ        base        =  0xA      ; Decimal
 
 ;;  IO Registers ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-;       State: | neg | 0b | 0b | 0b | 0b | 0b | 0b | compile |
+;       State: | negative | memory[6:5] | 0b | 0b | 0b | 0b | compile |
+; Memory detail: 0b01 = sram, 0b10 = eeprom, 0b11 = flash
         .equ        state           = GPIO_GPIOR0
 
         .equ        base_r          = GPIO_GPIOR1

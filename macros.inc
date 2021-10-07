@@ -52,7 +52,7 @@
 
 ;; Forth constant (retrieves word from mem and puts on stack)
 ;;      same args as word or primative + value
-.macro def_const
+.macro _const
         def_asm     @0, @1, @2, @3          ; setup header
         ldi      r16, Low(@4)           ; does: put address on stack
         ldi      r17, High(@4)
@@ -60,7 +60,7 @@
 .endmacro
 
 ;; constant byte rather than word
-.macro def_const_b
+.macro const
         def_asm     @0, @1, @2, @3          ; setup header
         ldi      r16, @4            
         jmp      do_const_b         

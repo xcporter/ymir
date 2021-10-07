@@ -85,16 +85,7 @@ def_asm         "lit", 3, $0, literal           ; Retrieve next as num and put o
 
 def_asm         ":setup", 5, $0, cold_start
 
-def_asm         ":restart", 5, $0, warm_start
-
-def_asm         "reset", 5, $0, reset
-        ldi     r16, Low(RAMEND)        ; init stack pointer
-        ldi     r17, High(RAMEND)
-        out     CPU_SPL, r16
-        out     CPU_SPH, r17
-        call    reset_in_buffer
-        call    reset_w_buffer
-        rjmp    next
+def_asm         ":rest
     
 def_const       "r0", 2, $0, r_stack_zero, RAMEND
 
@@ -651,36 +642,7 @@ def_asm         ">>", 2, $0, b_shr  ;(num to shift, shift x times)
         ror     r16
         rjmp    b_shr_loop
 
-;; Memory Ops --------------------
-def_asm         "!", 1, $0, store    ; ( val, addr --)
-        _ppop  ZL, ZH              ; load address
-        _ppop  r16, r17            ; load byte
-        st      Z+, r16
-        st      Z+, r17
-        jmp     next
 
-def_asm         "!+", 2, $0, store_inc       ; ( val, addr -- addr + 1)
-        _ppop  ZL, ZH              ; load address
-        _ppop  r16, r17
-        st      Z+, r16
-        st      Z+, r17
-        _ppush  ZL, ZH
-        jmp     next
-
-def_asm         "@", 1, $0, fetch
-        _ppop  ZL, ZH          ; load address
-        ld      r16, Z+
-        ld      r17, Z+
-        _ppush  r16, r17       ; put value on p_stack
-        jmp     next
-
-def_asm         "@+", 2, $0, fetch_inc ; (addr -- next_addr, value)
-        _ppop  ZL, ZH          ; load address
-        ld      r16, Z+
-        ld      r17, Z+
-        _ppush  ZL, ZH     
-        _ppush  r16, r17       ; put value on p_stack
-        jmp     next
 
 ;; String Ops --------------------
 def_asm         "litstring", 9, $0, litstring

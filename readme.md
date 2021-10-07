@@ -281,7 +281,9 @@ Here we see the most recent word is `syscheck`, and the rest is machine code
 
 
 # todo 
-- [ ] compiler / interpreter state
+- [x] Reset Debug text
+
+- [ ] compiler
 
 - [ ] flash to program memory
 
@@ -306,4 +308,10 @@ Here we see the most recent word is `syscheck`, and the rest is machine code
 - [ ] assembler
 
 - [ ] editor in ram?
+
+- [ ] system observability tools like :observe, :load 
+
+- [ ] words / see
+
+- [ ] words / see
 
