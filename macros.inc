@@ -12,46 +12,57 @@
 ;******************************************************************************************
 
         .set     word_link = 0x0000     ; macro variable for word link
+        .set     eep_link = 0x0000      
 
 ;; Word Structure ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ;   | Link Address | Flags/Length | Definition |
 ;   | 2 B          | n B          | n B        |
 ;                 /                \
-;    ____________/                  \__________________
+;    ____________/                  \____________
 ;   |f_immediate | f_hidden | f_? | Length[4:0] |
 
-;; Forth primative
-;       name_string, name_length, flag, subroutine_name
+
+
+; Define Forth primative
+;       must end in jump to next (or jump to word that ends in next/done)
+
+;;      name_string, name_length, flag, subroutine_name
 .macro def_asm
         link_asm_%:
-                .if     word_link != 0x0000 
+                .if     word_link != 0x0000                             ; build word header
                         .dw     (word_link << 1) + 0x4000
                 .else
                         .dw     word_link
                 .endif
                     
                     .db     ((@1 & 0b00011111)+(@2 & 0b11100000)), @0   ; store length / flag
-        .set            word_link = link_asm_%          ; update link
-        .equ        @3 = PC
+        .set            word_link = link_asm_%                          ; update link
+        .equ        @3 = PC                                             ; set routine name to address
 .endmacro
 
-;; Forth word
-;       name_string, name_length, flag, subroutine_name
+; Define Forth word
+;       each address must be .dw not .db
+;       must end in 'done' or loop or kernel will crash
+
+;;      name_string, name_length, flag, subroutine_name
 .macro def_word
         link_word_%:
-                .if     word_link != 0x0000 
+                .if     word_link != 0x0000                             ; build word header
                         .dw     (word_link << 1) + 0x4000
                 .else
                         .dw     word_link
                 .endif
                     .db     ((@1 & 0b00011111)+(@2 & 0b11100000)), @0   ; store length / flag
-        .set            word_link = link_word_%         ; update link
-        .equ        @3 = PC
-                    jmp     do
+        .set            word_link = link_word_%                         ; update link
+        .equ        @3 = PC                                             ; set routine name to address
+                    jmp     do                                          ; thread 
 .endmacro
 
-;; Forth constant (retrieves word from mem and puts on stack)
+;; Forth constant/var (retrieves word from mem and puts on stack)
 ;;      same args as word or primative + value
+;;      used for addresses or word sized constants
+
+;; name, name-length, subroutine_name, content
 .macro const 
         def_asm     @0, @1, 0, @2          ; setup header
         ldi      TOSL, Low(@3)              ; does: put word on stack
@@ -59,16 +70,23 @@
         jmp      do_const
 .endmacro
 
+
+; For longer constants, like strings or actor configurations
+;       puts address of data-start (skips past xt) on the stack
+
+;; name, name-length, subroutine_name
 .macro const_data 
-        def_asm     @0, @1, 0, @2          ; setup header
-    _const_data_%:
+        def_asm     @0, @1, 0, @2                           ; setup header
         ldi      TOSL, Low((_const_data_% << 1) + 0x4000)   ; put start of new data seg on stack
         ldi      TOSH, High((_const_data_% << 1) + 0x4000)
         jmp      do_const
+        _const_data_%:
 .endmacro
 
-        .set     eep_link = 0x0000      ; latest is first 0x0000
-;       name, name length, routine name, eep content
+;       For defining constants in eeprom
+;       writes content to eseg, then defines const word with proper eeprom address
+
+;;      name, name-length, routine-name, eep content
 .macro eep_const 
         def_asm     @0, @1, 0, @2          ; setup header
         ldi      TOSL, Low(EEPROM_START + eep_link)

@@ -24,17 +24,23 @@
         .def            ACAL = r24 
         .def            ACBH = r23      ; Accumulator B
         .def            ACBL = r22
-;       State: | negative | memory[6:5] | 0b | 0b | 0b | 0b | compile |
-;       Memory detail: 0b01 = sram, 0b10 = eeprom, 0b11 = flash
+
+; memory detail: 
+; 0b01 = sram
+; 0b10 = eeprom
+; 0b11 = flash
+;       | sign-flag[7] | memory-flag[6:5] | 0b | 0b | 0b | 0b | compile-flag[0] |
         .def            STAH = r21      ; state register
         .def            STAL = r20        
-        
-  
 
         .def            TOSH = r17      ; Top of Stack Cache
         .def            TOSL = r16 
+
+;       |f_immediate[7] | f_hidden[6] | f_?[5] | Length[4:0] |
+;   *** Notice that this means a max word-name-length of 31 chars. ***
         .def            WCH  = r13      ; current word cache (contains length/flag)
         .def            WCL  = r12
+
         .def            zero = r10      ; constant Zero
         .def            one  = r11      ; constant One
 
@@ -50,23 +56,32 @@
         .equ        usart_mux   =  0x44     ; Map USART3 to USB and USART1 to TX/RX pins
         .equ        base_def    =  0xA      ; Decimal
 
-;;  IO Registers ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        .equ        reset_r         = GPIO_GPIOR0
-
-        .equ        base_r          = GPIO_GPIOR1
-
-        .equ        coroutine_pt    = GPIO_GPIOR2
-
-;       Number format: | sign [default true] | base literal | 0b | padding [5:0] |
-        .equ        num_format      = GPIO_GPIOR3 
+;       default actor configuration
+        .equ        op_p_size   = 0x0028    ; default stack size 40 b (20 items)
+        .equ        op_tib_size = 0x0100    ; tib size (256 b)
+        .equ        op_pad_size = 0x0100    ; pad size (256 b)
+        .equ        op_rxd      = USART3_RXDATAL
+        .equ        op_rxw      = USART3_STATUS
+        .equ        op_txd      = USART3_TXDATAL
+        .equ        op_txw      = USART3_STATUS
 
 
 ;; RAM layout: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-;       | &active block | active block | word buffer  | actor workspace | return stack |
-;       |       2 b     |    1024 b    |     32 b     |     <4430 b     |    ~(512 b)  |
-;       | SRAM_START----->
+;| &active block | active block | word buffer  | actor workspace | return stack |
+;|       2 b     |    1024 b    |     32 b     |     <4430 b     |    ~(512 b)  |
+;| SRAM_START----->
 
         .equ        active_block_start = SRAM_START + 0x02
         .equ        word_buffer_start = active_block_start + 0x400
         .equ        actor_ws_start = word_buffer_start + 0x20
+
+;;  IO Registers ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        .equ        reset_r         = GPIO_GPIOR0       ; reset debug info
+
+        .equ        base_r          = GPIO_GPIOR1       ; current base
+
+        .equ        coroutine_pt    = GPIO_GPIOR2       ; current actor
+
+;      | signed[7] (default=true/set) | base-literal-flag[6] | 0b | padding [4:0] |
+        .equ        num_format      = GPIO_GPIOR3       ; number fmt register
 
