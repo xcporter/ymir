@@ -72,23 +72,23 @@ def_asm         "-rot", 4, $0, inv_rot ; ( a b c -- c a b )
  
 ; Return Stack ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 def_asm         ">r", 2, $0, to_r
-        _ppop   r16, r17
-        _push   r16, r17
+        sbiw    SL, 0x02
+        _push   TOSL, TOSH
+        cache_tos
         jmp     next
 
 def_asm         "r>", 2, $0, from_r
-        _pop    r16, r17
-        _ppush  r16, r17
+        _pop    TOSL, TOSH
+        push_tos
         jmp     next
 
 def_asm         "@r", 2, $0, fetch_r
-        _pop    r16, r17
-        _push   r16, r17
-        _ppush  r16, r17       ; put it onto the param stack
+        _pop    TOSL, TOSH
+        _push   TOSL, TOSH
+        push_tos        ; put it onto the param stack
         jmp     next
 
-def_asm         "!r", 2, $0, store_r
-        sbiw    SL, 0x02
+def_asm         "!r", 2, $0, store_r    ; put tos on r-stack without affecting p-stack
         _push   TOSL, TOSH
         jmp     next
 
