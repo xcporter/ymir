@@ -52,19 +52,54 @@
 
 ;; Forth constant (retrieves word from mem and puts on stack)
 ;;      same args as word or primative + value
-.macro _const
-        def_asm     @0, @1, @2, @3          ; setup header
-        ldi      r16, Low(@4)           ; does: put address on stack
-        ldi      r17, High(@4)
+.macro const 
+        def_asm     @0, @1, 0, @2          ; setup header
+        ldi      TOSL, Low(@3)              ; does: put word on stack
+        ldi      TOSH, High(@3)
         jmp      do_const
 .endmacro
 
-;; constant byte rather than word
-.macro const
-        def_asm     @0, @1, @2, @3          ; setup header
-        ldi      r16, @4            
-        jmp      do_const_b         
+.macro const_data 
+        def_asm     @0, @1, 0, @2          ; setup header
+    _const_data_%:
+        ldi      TOSL, Low((_const_data_% << 1) + 0x4000)   ; put start of new data seg on stack
+        ldi      TOSH, High((_const_data_% << 1) + 0x4000)
+        jmp      do_const
 .endmacro
+
+        .set     eep_link = 0x0000      ; latest is first 0x0000
+;       name, name length, routine name, eep content
+.macro eep_const 
+        def_asm     @0, @1, 0, @2          ; setup header
+        ldi      TOSL, Low(EEPROM_START + eep_link)
+        ldi      TOSH, High(EEPROM_START + eep_link)        
+        jmp      do_const       
+        .set     eep_link = eep_link + 0x02
+
+        .eseg 
+        .org    eep_link
+        .dw     @3
+        .cseg 
+.endmacro
+
+        .set     ram_link = 0x0000
+.macro ram_const 
+        def_asm     @0, @1, 0, @2          ; setup header
+        ldi      TOSL, Low(SRAM_START + ram_link)
+        ldi      TOSH, High(SRAM_START + ram_link)        
+        jmp      do_const       
+        .set     eep_link = ram_link + 0x02
+.endmacro
+
+
+.macro cache_tos 
+        _ppop   TOSL, TOSH
+        adiw    SL, 0x02 
+.endmacro    
+
+.macro push_tos     ; push TOS
+        _ppush   TOSL, TOSH
+.endmacro 
 
 ;; push word to return stack (for consistency)
 .macro _push
@@ -72,8 +107,8 @@
         push    @1
 .endmacro 
 .macro _pop
-        push    @1                  
-        push    @0
+        pop     @1                  
+        pop     @0
 .endmacro 
 
 ;;      Parameter stack ops
@@ -101,6 +136,11 @@
 .endmacro
 
 .macro ccp_spm_unlock               ; write spm signature to config change protection register
-        ldi     r16, 0x9d
+        ldi     r16, CPU_CCP_SPM_gc
+        out     CPU_CCP, r16 
+.endmacro
+
+.macro ccp_ioreg_unlock              ; write spm signature to config change protection register
+        ldi     r16, CPU_CCP_IOREG_gc
         out     CPU_CCP, r16 
 .endmacro
