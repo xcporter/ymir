@@ -2,7 +2,7 @@
 ;*   
 ;*      YMIR
 ;*
-;*      DICTIONARY CORE -> DEVICECONSTANTS 
+;*      DICTIONARY CORE -> DEVICEDEF
 ;*
 ;*      Words for accessing device constants like IO register locations
 ;*
