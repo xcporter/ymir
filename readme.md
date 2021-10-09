@@ -1,17 +1,11 @@
 # YMIR  
 ##  A simple forth for the atmega 4809
-It seems that the best way to know forth is to write one yourself. To that end this project is primarily educational, but may perhaps be practical as well, given that most forths which run on avr have yet to be ported to the 4809.
+It seems that the best way to know forth is to write one yourself. To that end this project is primarily educational, but may perhaps be practical as well, given that most forths which run on avr have yet to be ported to the 4809. 
 
-This forth is primarily inspired by Jonesforth, Flashforth, and the descriptions provided in "Starting Forth" as well as "Threaded Interpreted Languages". Though I will eventually include avr self programming routines, my design goals differ from those of flashforth. I'm not particularly concerned with the ANS standard, but there will be significant overlap in structure with standard Forth. 
-
-Ymir is directly threaded. I will eventually add an indirect threading routine to make it possible to run words from ram. 
-
-I intend Ymir to be minimal, and as flexible as possible. This means that it will be inherently less safe than flashforth. You will be allowed to overwrite the kernel, if you like. I intend to eventually allow multiple concurrency actors to access the interpreter, to allow terminal access over multiple UART or serial connections. 
-
-At the moment, training wheels are still on, in terms of how the transmission routines are done. I will eventually migrate to more modular routines once the dictionary core is self hosting and thoroughly tested. 
-
-##  Compiling
+#  Compiling/Installing
 I use the avra toolchain, and avrdude to flash. For avrdude, be sure to use the version included with the arduino environment. Also, to trigger the programmer (if you're using the arduino nano every) you'll have to make a connection at 1200 baud, then immediately disconnect and engage avrdude. 
+
+If you like, this is already worked out in the included shell script. Just pass in the filename of the hex file produced by `avra`. Like this: `./avrflash ymir.hex`
 
 ## Connecting
 Find likely IO devices with `ls /dev/cu*` the one most similar to `/dev/cu.usbmodem141401` is the correct port.
@@ -20,69 +14,134 @@ To connect with the `screen` utility, enter the following into bash:
 ```
 screen /dev/cu.usbmodem141401 115200
 ```
-where the last number is the baud rate. 
+where the last number is the baud rate. Other tty emulators like terraterm or the arduino serial monitor should work as well. 
 
-## General Structures
+# General Architecture
 Though this forth is for an 8 bit processor, the default number type in this system is a signed 16 bit integer. 
-Each space on the parameter stack is a single 16 bit word.
+Each space on the parameter stack is a single 16 bit word. Eventually I might add the option for an actor with a double-width stack for full sized floats and other big number types. 
 
-Memory that decrements generally belongs to "system" concerns like the in-buffer,and return stack. 
-All other memory segments grows toward higher addresses. 
+To save space in the dictionary headers, I've condensed the name-length and flags into a single byte. ***This means that the maximum length for a word name is the capacity of a 5 bit number, or 31 characters.***
 
 In some cases I've opted for more unix/c like syntax instead of classical forth syntax, for example:
 
-`!=` instead of `<>`, `/n` instead of `cr`, etc.
+`!=` instead of `<>`, `/n` instead of `cr`, `++` or  `--` instead of `1+` or `1-` etc.
 
-# Reserved Registers 
-`SP` - Return stack pointer
 
-`Z` - Working Pointer
-- memory read/write,indirect execution
+## Design
+I intend Ymir to be minimal, and as flexible as possible. This means that it will be inherently less safe than Flashforth. You will be allowed to overwrite the kernel, if you like. Ymir is structured to allow for multiple concurrent actors to access any of the input or output peripherals independently as well as take control of the interpreter. 
 
-`Y` -  Instruction Pointer
+This forth is primarily inspired by Jonesforth, Flashforth, and the descriptions provided in "Starting Forth" as well as "Threaded Interpreted Languages". 
 
-`X` -  Parameter stack pointer
 
-`W` -  pointer to s buffer (r[24:25])
+Though I aspire to the same kind of transparency with self programming routines, my design goals differ from those of Flashforth. I'm not particularly concerned with the ANS standard, but there will likely be significant overlap in structure with standard Forth. 
 
-`BR` - r[14:15] in buffer read pointer
+Ymir is directly threaded, with the option of indirect threading for running words in ram or on the eeprom. 
 
-`BW` - r[12:13]  in buffer write pointer
+There is a single kernel, word buffer, dictionary pointer, and return stack to handle fundamental execution flow. All other system concerns will belong to an Actor. This is the same Actor from the actor model of concurrent computation. In Ymir, this actor is incarnated as a data structure in SRAM. 
 
-`zeroR` - r10 constant zero
+When the system is first flashed, it will use a single actor called `actor0`. Each Actor will have its own parameter stack, TIB, and PAD, as well as its own configuration for which IO device to use. Each Actor is free to manipulate the kernel or runtime, create new actors, or pass messages via placing items on another Actor's stack. 
 
-`oneR` - r11 constant one
+Concurrency in this case is implemented with a round robin, non-preemptive scheduling scheme. The Actors form a linked list in memory that can be manipulated to start or cancel coroutines. Pairs of Task and Configuration vectors in the eeprom are used to determine which Actors to instantiate on startup. Optionally, I plan to eventually add either the watchdog timer, or a timer interrupt to impose time limits for each task in real-time use cases.
 
-# Word Structure 
-| Link Address | Name Length / Flag | Name  | Definition | 
+## Word Structure 
+| Link Address | Name Length / Flag | Name | Definition | 
 |-|-|-|-|
 | 2 b | flags[7:5] length[4:0] | max 31 chars | code or data  | n b        | n b
 
 | Flag Detail|          |          |    |    |    |    |           |
 |------------|----------|----------|----|----|----|----|-----------|
-|f_immediate | f_hidden | f_no_flash | length[4:0] |
-
-# IO Registers
-| State: | | | | | | | |
-|---------|-----------------|----|----|----|----|----|---------|
-| reverse | in_buffer_reset | 0b | 0b | 0b | 0b | 0b | compile |
+|f_immediate[7] | f_hidden[6] | f_?[5] | length[4:0] |
 
 
-# System Memory
-First 256 bytes of sram (can be persisted in eeprom)
-| 0x0000: | | | | | | 
-|---------|-----------------|----|----|----|----|
-prog_latest | ram_latest | prog_here | ram_here | 0x00
+## Memory Layout
+### Ram
+| system variables | active block pointer | active block | word buffer  | actor workspace | return stack |
+|-|-|-|-|-|-|
+30 b | 2 b | 1024 b | 32 b | <4400 b | ~(512 b) |
+
+System Variable | Description
+|-|-|
+#rx.data | rx data vector (which IO reg to write to) 
+#rx.wait | rx wait vector (which IO reg to check) 
+#tx.data | tx data vector (which IO reg to write to) 
+#tx.wait | tx wait vector (which IO reg to check)
+#p0 | p stack start vector (changes with actor) 
+psize | p stack max size
+#tib | Terminal In Buffer start (changes with actor)
+tibsize | tib stack max size
+#pad | Pad start (changes with actor) |
+padsize | pad max size
+
+### Actor Layout
+| link | task | &stack | Stack | &TIBR | &TIBW | TIB | &PAD | PAD |
+|-|-|-|-|-|-|-|-|-|
+| 2 b | 2 b | 2 b | ~ | 2 b | 2 b | ~ | 2 b | ~
+
+~ = configurable size
+### EEprom
+System variables (2b each)
+
+| System Variable | Description
+|-|-|
+| #latest | Last entry in dictionary |
+| #init | User configurable init vector |
+| #start | User configurable start vector |
+| base.default | |
+| here.pg | write pointer for flash |
+| here.eep | write pointer for eeprom |
+| #operator | First active actor in memory |
 
 
-# RAM layout:
-| System | Buffer | P stack >| Ram Dictionary > |< R stack |
-|--------|--------|----------|-----------------|----------|
-| 256 B  | 2kB    | 512 B    |  3.2kB          | 512 B    |
+### Flash 
+| Kernel | Dictionary Core | User Dictionary | User block storage |
+|-|-|-|-|
+| ~112b | ~2kB | ~ | ~ |
 
-| Buffer ||
-|--------|-|
-| s_buffer>  | <in_buffer |
+## Custom IO Registers
+
+|Register | System Name | Description |
+|-|-|-|
+| reset_r | GPIO_GPIOR0 | debug info from last reset |
+| base_r | GPIO_GPIOR1 | current radix |
+| coroutine_pt | GPIO_GPIOR2 | current actor |
+| num_format | GPIO_GPIOR3 | number fomat register|
+
+|num_format detail: | | | |
+|-|-|-|-|
+| signed[7] (default=true/set) | base-literal flag[6] | 0b | padding [4:0] |
+
+## Reserved CPU Registers 
+
+| Name | Register  | Description |
+|-|-|-|
+`Z` | r[30:31] | Working pointer: memory read/write, indirect execution
+`IH` | r29 | Instruction Pointer 
+`IL` | r28 | 
+`SH` | r27 | Stack Pointer
+`SL` | r26 
+`ACAH` | r25 | Accumulator A: 
+`ACAL` | r24 | (adiw/sbiw available)
+`ACBH` | r23 | Accumulator B:
+`ACBL` | r22 | (only add/adc/sub/sbc)
+`STAH` | r21 | State register
+`STAL` | r20 |     
+`TOSH` | r17 | Top of Stack Cache
+`TOSL` | r16 | 
+`WCH` | r13  | current word cache (contains length/flag)
+`WCL` | r12
+`zero`| r10  | constant Zero
+`one` | r11  | constant One
+
+| State register | | | | | | |
+|-|-|-|-|-|-|-|
+| sign-flag[7] | memory-flag[6:5] | 0b | 0b | 0b | 0b | compile-flag[0] |
+
+| mem_flag detail: | |
+|-|-|
+01 | sram
+10 | eeprom
+11 | flash
+
 
 # Code samples, basic Forth intro: 
 Everything that happens in Forth is an operation on the stack. Input consists of ascii words separated by whitespace. 

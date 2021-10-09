@@ -11,7 +11,7 @@
 ;* 
 ;*************************************************************************
 
-const           "#latest", 7, latest, EEPROM_START
+eep_const       "#latest", 7, latest, EEPROM_START
 eep_const       "#init", 5, init_vector, init
 eep_const       "#start", 6, start_vector, start
 eep_const       "base.default", 12, base_default, base_def
