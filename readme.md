@@ -1,5 +1,22 @@
 # YMIR  
 ##  A simple forth for the atmega 4809
+```
+Of old was the age when Ymir lived;
+Sea nor cool waves nor sand there were;
+Earth had not been, nor heaven above,
+But a yawning gap, and grass nowhere. \\ Völuspá 4
+
+Of Ymir's flesh was earth created,
+of his blood the sea,
+of his bones the hills,
+of his hair trees and plants,
+of his skull the heaven;
+and of his brows the gentle powers
+formed Midgard for the sons of men;
+but of his brain
+the heavy clouds are all created. \\ Grímnismál 24–25
+```
+
 It seems that the best way to know forth is to write one yourself. To that end this project is primarily educational, but may perhaps be practical as well, given that most forths which run on avr have yet to be ported to the 4809. 
 
 #  Compiling/Installing
@@ -17,8 +34,16 @@ screen /dev/cu.usbmodem141401 115200
 where the last number is the baud rate. Other tty emulators like terraterm or the arduino serial monitor should work as well. 
 
 # General Architecture
-Though this forth is for an 8 bit processor, the default number type in this system is a signed 16 bit integer. 
-Each space on the parameter stack is a single 16 bit word. Eventually I might add the option for an actor with a double-width stack for full sized floats and other big number types. 
+To facilitate flexibility in terms of IO processing and concurrency, all processing is done in terms of self contained Actors. 
+
+Each Actor has its own return stack, parameter stack, and word buffer. An Actor might additionally have its own TIB (terminal input buffer), PAD (general buffer), and IO configuration. Scheduling is done in a cooperative round robin. Coroutine flow is managed with the word `yield`, which suspends the current actor and moves execution to the next.
+
+Actors may communicate via stacks or buffers, create other actors, or communicate with their own configurable IO device.
+
+Though this forth is for an 8 bit processor, the default number type is a signed 16 bit integer. 
+Each space on the parameter stack is a single 16 bit word. 
+
+Eventually I might add the option for an Actor with a double-width stack for full sized floats and other big number types. 
 
 To save space in the dictionary headers, I've condensed the name-length and flags into a single byte. ***This means that the maximum length for a word name is the capacity of a 5 bit number, or 31 characters.***
 
@@ -26,21 +51,27 @@ In some cases I've opted for more unix/c like syntax instead of classical forth 
 
 `!=` instead of `<>`, `/n` instead of `cr`, `++` or  `--` instead of `1+` or `1-` etc.
 
+## Naming conventions
+Words beginning with `:` have to do with the system background; words beginning with `#` are addresses; words that start with `~` are involved with system-wide coroutine flow. Words that contain `::` have to do with parsing. 
+
+For a more detailed design overview, see: [design.md](./design.md)
+
+
 # Code samples, basic Forth intro: 
 Everything that happens in Forth is an operation on the stack. Input consists of ascii words separated by whitespace. 
 
-When you type return/enter the forth system engages the interpreter. The Interpreter reads what you've typed so far from the `in_buffer` until empty, parsing each whitespace separated token in turn according to the following logic:
--   Is it in the Dictionary? 
-       - Am I compiling?
-          - Compile Word
-       - Execute Word
+## The Interpreter/Shell
+
+When you type return/enter the forth system engages the interpreter. The Interpreter reads what you've typed so far from the `in_buffer` until empty, parsing each whitespace separated token in turn along the following logic:
+- Is it in the Dictionary? 
+  - Execute Word
 - Is it a valid number?     
   - place number on the stack
-- syntax error
+- Otherwise syntax error
+
+That outline is admittedly a bit simplistic. However, if you're new to Forth, there's no need to worry about those additional details at this point, [unless you really want to](./design.md#interpiler).
 
 This results in the characteristic postfix style of forth. Eg. `4 4 +` instead of `4 + 4`
-
-## The Interpreter
 
 `clear` will clear the screen without affecting the stacks, much like a unix shell. Backspace should work to edit each line. 
 
@@ -223,137 +254,8 @@ To read back 40 chars of the last dictionary entry as text
 ```
 Here we see the most recent word is `syscheck`, and the rest is machine code
 
-# Design
-I intend Ymir to be minimal, modular, and as flexible as possible. This means that it will be inherently less safe than Flashforth. You will be allowed to overwrite the kernel, if you like. You'll also be allowed to add or remove parts of the core dictionary if you need to make space, or use numbers larger than 16 bits. Just comment out or add the relevant files in `ymir.asm`.
-
-Ymir is structured to allow for multiple concurrent actors to access any of the input or output peripherals independently as well as take control of the interpreter. 
-
-This forth is primarily inspired by Jonesforth, Flashforth, and the descriptions provided in "Starting Forth" as well as "Threaded Interpreted Languages". 
 
 
-Though I aspire to the same kind of transparency with self programming routines, my design goals differ from those of Flashforth. I'm not particularly concerned with the ANS standard, but there will likely be significant overlap in structure with standard Forth. 
-
-Ymir is directly threaded, with the option of indirect threading for running words in ram or on the eeprom. 
-
-There is a single kernel, word buffer, dictionary pointer, and return stack to handle fundamental execution flow. All other system concerns will belong to an Actor. This is the same Actor from the actor model of concurrent computation. In Ymir, this actor is incarnated as a data structure in SRAM. 
-
-When the system is first flashed, it will use a single actor called `actor0`. Each Actor will has its own parameter stack, TIB (terminal-in buffer), and PAD (general purpose buffer), as well as its own configuration for which IO device to use. Each Actor is free to manipulate the kernel or runtime, create new actors, or pass messages via placing items on another Actor's stack. 
-
-Concurrency in this case is implemented with a round robin, non-preemptive scheduling scheme. The Actors form a linked list in memory that can be manipulated to start or cancel coroutines. The start of this null terminated list is called `operator`, and is always the first coroutine to run. Pairs of Task and Configuration vectors in the eeprom are used to determine which Actors to instantiate on startup. Optionally, I plan to eventually add either the watchdog timer, or a timer interrupt to impose time limits for each task in real-time use cases.
-
-## Word Structure 
-| Link Address | Name Length / Flag | Name | Definition | 
-|-|-|-|-|
-| 2 b | flags[7:5] length[4:0] | max 31 chars | code or data  | n b        | n b
-
-| Flag Detail|          |          |    |    |    |    |           |
-|------------|----------|----------|----|----|----|----|-----------|
-|f_immediate[7] | f_hidden[6] | f_?[5] | length[4:0] |
-
-
-## Memory Layout
-### Ram
-| system variables | active block pointer | active block | word buffer  | actor workspace | return stack |
-|-|-|-|-|-|-|
-30 b | 2 b | 1024 b | 32 b | <4400 b | ~(512 b) |
-
-System Ram Variable | Description
-|-|-|
-#rx.data | rx data vector (which IO reg to write to) 
-#rx.wait | rx wait vector (which IO reg to check) 
-#tx.data | tx data vector (which IO reg to write to) 
-#tx.wait | tx wait vector (which IO reg to check)
-#p0 | p stack start vector (changes with actor) 
-psize | p stack max size
-#tib | Terminal In Buffer start (changes with actor)
-tibsize | tib stack max size
-#pad | Pad start (changes with actor) |
-padsize | pad max size
-
-### Actor Layout
-| link | task | &stack | Stack | &TIBR | &TIBW | TIB | &PAD | PAD |
-|-|-|-|-|-|-|-|-|-|
-| 2 b | 2 b | 2 b | ~ | 2 b | 2 b | ~ | 2 b | ~
-
-~ = configurable size
-### Actor Configuration
-An Actor's structure (other than its task word) is determined by its configuration word. 
-
-The configuration word is a `const` that contains the following:
-- stack size
-- tib size
-- pad size
-- rx data register 
-- rx status register
-- tx status register
-- tx wait register
-
-The task word is the word that will be run each time it's the Actor's turn to execute. Rather than `exit`, task words should end with `yield`, which yields execution control to the next Actor. 
-
-
-### EEprom
-System variables (2b each)
-
-| System Variable | Description
-|-|-|
-| #latest | Last entry in dictionary |
-| #init | User configurable init vector |
-| #start | User configurable start vector |
-| base.default | |
-| here.pg | write pointer for flash |
-| here.eep | write pointer for eeprom |
-| #operator | First active actor in memory |
-
-
-### Flash 
-| Kernel | Dictionary Core | User Dictionary | User block storage |
-|-|-|-|-|
-| ~112b | ~2kB | ~ | ~ |
-
-## Custom IO Registers
-
-|Register | System Name | Description |
-|-|-|-|
-| reset_r | GPIO_GPIOR0 | debug info from last reset |
-| base_r | GPIO_GPIOR1 | current radix |
-| coroutine_pt | GPIO_GPIOR2 | current actor |
-| num_format | GPIO_GPIOR3 | number fomat register|
-
-|num_format detail: | | | |
-|-|-|-|-|
-| signed[7] (default=true/set) | base-literal flag[6] | 0b | padding [4:0] |
-
-## Reserved CPU Registers 
-
-| Name | Register  | Description |
-|-|-|-|
-`Z` | r[30:31] | Working pointer: memory read/write, indirect execution
-`IH` | r29 | Instruction Pointer 
-`IL` | r28 | 
-`SH` | r27 | Stack Pointer
-`SL` | r26 
-`ACAH` | r25 | Accumulator A: 
-`ACAL` | r24 | (adiw/sbiw available)
-`ACBH` | r23 | Accumulator B:
-`ACBL` | r22 | (only add/adc/sub/sbc)
-`STAH` | r21 | State register
-`STAL` | r20 |     
-`TOSH` | r17 | Top of Stack Cache
-`TOSL` | r16 | 
-`WCH` | r13  | current word cache (contains length/flag)
-`WCL` | r12
-`zero`| r10  | constant zero
-`one` | r11  | constant one
-
-| State register | | | | | | |
-|-|-|-|-|-|-|-|
-| sign-flag[7] | memory-flag[6:5] | 0b | 0b | 0b | 0b | compile-flag[0] |
-
-| mem_flag detail: | |
-|-|-|
-01 | sram
-10 | eeprom
-11 | flash
 # todo 
 - [x] Reset Debug text
 
