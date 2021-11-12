@@ -9,30 +9,27 @@
 ;* 
 ;*************************************************************************
 
-def_asm         "lit", 3, $0, literal           ; Retrieve next as num and put on P-stack
-        ld      r16, Y+
-        ld      r17, Y+
-        _ppush  r16, r17
-        rjmp    next 
-
 
 def_word        "hex", 3, $0, to_hex
         .dw     literal
         .dw     0x0010
-        .dw     set_base
-        .dw     exit
+        .dw     base_r 
+        .dw     store 
+        .dw     done
 
 def_word        "dec", 3, $0, to_dec
         .dw     literal
         .dw     0x000A
-        .dw     set_base
-        .dw     exit
+        .dw     base_r 
+        .dw     store 
+        .dw     done
 
 def_word        "bin", 3, $0, to_bin
         .dw     literal
         .dw     0x0002
-        .dw     set_base
-        .dw     exit
+        .dw     base_r 
+        .dw     store 
+        .dw     done
 
 def_asm         "sign", 4, $0, sign
         sbi     num_format, 7

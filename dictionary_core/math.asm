@@ -23,6 +23,19 @@ def_asm         "--", 2, $0, decr
         push_tos
         jmp     next
 
+
+def_asm         "r--", 3, 0, r_decr 
+        _pop    ACAL, ACAH 
+        sbiw    ACAL, 0x01
+        _push   ACAL, ACAH 
+        jmp     next 
+
+def_asm         "r++", 3, 0, r_incr
+        _pop    ACAL, ACAH 
+        adiw    ACAL, 0x01
+        _push   ACAL, ACAH 
+        jmp     next 
+
 def_asm         "+", 1, $0, addition
         sbiw    SL, 0x02
         _ppop   r0, r1

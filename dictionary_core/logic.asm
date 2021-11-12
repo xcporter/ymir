@@ -10,10 +10,10 @@
 ;*************************************************************************
 
 _do_compare:
-        _ppop  r16, r17
-        _ppop  r18, r19
-        cp      r16, r18
-        cpc     r17, r19
+        sbiw     SL, 0x02
+        _ppop    r18, r19
+        cp       r18, r16
+        cpc      r19, r17
         ret
 
 def_asm         "==", 2, $0, equal
@@ -32,22 +32,20 @@ def_asm         "<", 1, $0, less
         rjmp    _false
 
 def_asm         ">", 1, $0, greater
-        _ppop  r16, r17
-        _ppop  r18, r19
-        ldi     r20, 0x01
-        add     r18, r20
-        cp      r16, r18
-        cpc     r17, r19
+        sbiw    SL, 0x02
+        _ppop   r18, r19
+        inc     r18
+        cp      r18, r16
+        cpc     r19, r17
         brge    _true
         rjmp    _false
 
 def_asm         "<=", 2, $0, less_eq
-        _ppop  r16, r17
-        _ppop  r18, r19
-        ldi     r20, 0x01
-        add     r18, r20
-        cp      r16, r18
-        cpc     r17, r19
+        sbiw    SL, 0x02
+        _ppop   r18, r19
+        inc     r16
+        cp      r18, r16
+        cpc     r19, r17
         brlt    _true
         rjmp    _false
 
@@ -56,67 +54,88 @@ def_asm         ">=", 2, $0, greater_eq
         brge    _true
         rjmp    _false
 
-def_asm         "?0", 2, $0, is_zero
-        _ppop  r16, r17
-        clr     r18
-        cp      r16, r18
-        cpc     r17, r18
+def_asm         "0?", 2, $0, is_zero
+        sbiw    SL, 0x02
+        cp      TOSL, zero
+        cpc     TOSH, zero
         breq    _true
         rjmp    _false
 
 ;; Booleans ----------------------
-;       These aren't words, but rather subroutines which 
-;       put either true or false onto the stack,
-;       put away the P pointer and jump to next
-_true:                    
-        ppush  one
+def_asm         "true", 4, 0, _true                 
+        ppush   one
+        mov     TOSL, one 
+        clr     TOSH 
         jmp     next
-_false:
-        ppush  zero
+def_asm         "false", 5, 0, _false
+        ppush   zero
+        clr     TOSH 
+        clr     TOSL 
         jmp     next
 
-def_asm         "!0", 2, $0, is_not_zero
-        _ppop  r16, r17
-        cp      r16, zero
-        cpc     r17, zero
+def_asm         "^0", 2, $0, is_not_zero
+        sbiw    SL, 0x02
+        cp      TOSL, zero
+        cpc     TOSH, zero
         brne    _true
         rjmp    _false
 
-def_asm         "-0", 2, $0, less_zero
-        _ppop  r16, r17
-        cp      r16, zero
-        cpc     r17, zero
+def_asm         "<0", 2, $0, less_zero
+        sbiw    SL, 0x02
+        cp      TOSL, zero
+        cpc     TOSH, zero
         brlt    _true
+        rjmp    _false
+
+;; used for loop primatives 
+;; checks top two elements on r stack, 
+;; then does == check 
+def_asm         "r==", 4, 0, r_equal
+        _pop    r0, r1          
+        _pop    r2, r3 
+        _push   r2, r3 
+        _push   r0, r1 
+        cp      r0, r2 
+        cpc     r1, r3  
+        breq    _true
+        rjmp    _false
+
+def_asm         "pr==", 4, 0, pr_equal
+        _pop    r18, r19 
+        _push   r18, r19 
+        cp      TOSL, r18 
+        cpc     TOSH, r19  
+        breq    _true
         rjmp    _false
 
 ;; Logic -------------------------
 def_asm         "||", 2, $0, b_or
-        _ppop  r16, r17
-        _ppop  r18, r19
+        sbiw    SL, 0x02
+        _ppop   r18, r19
         or          r16, r18
         or          r17, r19
-        _ppush r16, r17
+        push_tos
         jmp     next
 
 def_asm         "&&", 2, $0, b_and
-        _ppop  r16, r17
+        sbiw    SL, 0x02
         _ppop  r18, r19
         and         r16, r18
         and         r17, r19
-        _ppush r16, r17
+        push_tos
         jmp     next
 
 def_asm         "^", 1, $0, b_xor
-        _ppop  r16, r17
+        sbiw    SL, 0x02
         _ppop  r18, r19
         eor         r16, r18
         eor         r17, r19
-        _ppush r16, r17
+        push_tos
         jmp     next
 
 def_asm         "<<", 2, $0, b_shl
-    _ppop  r18, r19
-    _ppop  r16, r17
+    movw        r18, TOSL
+    _ppop       TOSL, TOSH
     b_shl_loop:
         cp      r18, zero
         cpc     r19, zero
@@ -127,12 +146,12 @@ def_asm         "<<", 2, $0, b_shl
         rol     r17
         rjmp    b_shl_loop
     shift_end:
-        _ppush r16, r17
+        push_tos
         jmp     next
 
 def_asm         ">>", 2, $0, b_shr  ;(num to shift, shift x times)
-        _ppop  r18, r19    
-        _ppop  r16, r17
+    movw        r18, TOSL
+    _ppop       TOSL, TOSH
     
     b_shr_loop:
         cp      r18, zero
