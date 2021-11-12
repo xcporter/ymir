@@ -13,8 +13,8 @@
 ;; Device definitions ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         .include    "m4809def.inc"
         .include    "libraries/usbserial.inc"
-        .include    "config.inc"
         .include    "macros.inc"
+        .include    "config.inc"
 
 
 ;; Setup ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -26,7 +26,7 @@
         ld      r16, Z
         out     GPIO_GPIOR0, r16
 
-        clr     zero                    ; set up registers
+        clr     zero                    ; setup registers
         clr     one 
         movw    STAL, zero 
         movw    TOSL, zero 
@@ -34,13 +34,16 @@
         movw    ACBL, zero
         inc     one 
 
-        ldi     r16, Low(RAMEND)        ; init stack pointer
+        ldi     r16, Low(RAMEND)        ; setup r stack pointer
         ldi     r17, High(RAMEND)
         out     CPU_SPL, r16
         out     CPU_SPH, r17
+
+        ldi     SL, Low(def_p_start)    ; setup p stack pointer 
+        ldi     SH, High(def_p_start)
  
-        ldi     ZL, Low(sysinit)           ; boot kernel (directs to whatever word is set to init vector)
-        ldi     ZH, High(sysinit)
+        ldi     ZL, Low(sys_init)           ; boot forth kernel
+        ldi     ZH, High(sys_init)
         ijmp
 
 ;; Terminal Core ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -57,7 +60,7 @@ do:
         ldi     r16, 0x40
         add     YH, r16
         rjmp    next
-def_asm         "exit", 4, $0, done
+def_asm         "exit", 4, 0, done
         _pop    YL, YH
 next:
         ld      ZL, Y+
@@ -69,44 +72,37 @@ next:
 
         .include        "dictionary_core/sysops.asm"
         .include        "dictionary_core/sysdef.asm"
-        .include        "dictionary_core/stack.asm"
-        .include        "dictionary_core/math.asm"
         .include        "dictionary_core/memory.asm"
-        
-def_word        "quit", 4, $0, main              ; Main system loop
-        ; .dw     reset                            ;  
-        ; .dw     accept                           ;   
-        ; .dw     interpret                        ;   
-        ; .dw     branch                           ;  
-        ; .dw     0xfffd                           ; -3
+        .include        "dictionary_core/stack.asm"
+        .include        "dictionary_core/control.asm"
+        .include        "dictionary_core/math.asm"
+        .include        "dictionary_core/logic.asm"
+        .include        "dictionary_core/io.asm"
+        ; .include        "dictionary_core/number.asm"
 
-;; End Dictionary ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-
-;; Utilities ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-_flash_to_global:                ; multiply by 2 and add 0x4000 for flash mem (using ld)
-        lsl     ZL
-        rol     ZH
-        ldi     r16, 0x40
-        add     ZH, r16
-        ret
-
-_global_to_flash:
-        ldi     r18, 0x40
-        sub     ZH, r18         ; addr back to flash space
-        lsr     ZH
-        ror     ZL
-        ret
+;; End of Dictionary ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 do_const:
+        adiw    ZL, 0x02
+        call    _flash_to_global 
+        ld      TOSL, Z+
+        ld      TOSH, Z+
         push_tos
-        jmp      next
+        jmp     next
+
+do_var:
+        adiw    ZL, 0x02
+        call    _flash_to_global
+        movw    TOSL, ZL
+        push_tos
+        jmp     next 
+
 ;;  End of Core ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 flash_here:
+
         .eseg 
-eep_here_pt:
+
+eep_here:
         .org    0x0000
         .dw     word_link
-
 

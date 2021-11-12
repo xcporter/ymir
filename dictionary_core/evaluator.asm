@@ -2,7 +2,7 @@
 ;*   
 ;*      YMIR
 ;*
-;*      DICTIONARY CORE -> INTERPILER (INTERPRETER/COMPILER)
+;*      DICTIONARY CORE -> EVALUATOR (INTERPRETER / COMPILER)
 ;*      
 ;*
 ;*      Author: Alexander Porter (2021)

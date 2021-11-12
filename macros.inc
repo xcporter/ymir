@@ -12,14 +12,13 @@
 ;******************************************************************************************
 
         .set     word_link = 0x0000     ; macro variable for word link
-        .set     eep_link = 0x0000      
 
 ;; Word Structure ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-;   | Link Address | Flags/Length | Definition |
-;   | 2 B          | n B          | n B        |
-;                 /                \
-;    ____________/                  \____________
-;   |f_immediate | f_hidden | f_? | Length[4:0] |
+;   | Link Address | 0xff | Flags/Length | Definition |
+;   | 2 B                 | n B          | n B        |
+;                        /                \
+;           ____________/                  \_____________
+;           |f_immediate | f_hidden | f_? | Length[4:0] |
 
 
 
@@ -34,8 +33,8 @@
                 .else
                         .dw     word_link
                 .endif
-                    
-                    .db     ((@1 & 0b00011111)+(@2 & 0b11100000)), @0   ; store length / flag
+                    .dw     0xff00 + ((@1 & 0b00011111)+(@2 & 0b11100000))                               ; store marker/length/flag
+                    .db     @0   ; store name
         .set            word_link = link_asm_%                          ; update link
         .equ        @3 = PC                                             ; set routine name to address
 .endmacro
@@ -52,106 +51,106 @@
                 .else
                         .dw     word_link
                 .endif
-                    .db     ((@1 & 0b00011111)+(@2 & 0b11100000)), @0   ; store length / flag
+                        .dw     0xff00 + ((@1 & 0b00011111)+(@2 & 0b11100000))                               ; store marker/length/flag
+                        .db    @0   ; store string
         .set            word_link = link_word_%                         ; update link
         .equ        @3 = PC                                             ; set routine name to address
                     jmp     do                                          ; thread 
 .endmacro
 
-;; Forth constant/var (retrieves word from mem and puts on stack)
-;;      same args as word or primative + value
-;;      used for addresses or word sized constants
+;; puts data after xt on stack
+.macro def_const
+        def_asm         @0, @1, 0, @2
+                jmp     do_const
+.endmacro 
 
-;; name, name-length, subroutine_name, content
-.macro const 
-        def_asm     @0, @1, 0, @2          ; setup header
-        ldi      TOSL, Low(@3)              ; does: put word on stack
-        ldi      TOSH, High(@3)
-        jmp      do_const
-.endmacro
+        
 
+;; puts address after xt on stack
+.macro def_var
+        def_asm         @0, @1, 0, @2
+                jmp     do_var
+.endmacro 
 
-; For longer constants, like strings or actor configurations
-;       puts address of data-start (skips past xt) on the stack
+;; allocate space in ram and add constant word with address
+        .set    ram_link = 0x0000
+.macro def_ram
+        def_asm         @0, @1, 0, @2
+                jmp     do_const
+                .dw     SRAM_START + ram_link
+        .set    ram_link = ram_link + 2
+.endmacro 
 
-;; name, name-length, subroutine_name
-.macro const_data 
-        def_asm     @0, @1, 0, @2                           ; setup header
-        ldi      TOSL, Low((_const_data_% << 1) + 0x4000)   ; put start of new data seg on stack
-        ldi      TOSH, High((_const_data_% << 1) + 0x4000)
-        jmp      do_const
-        _const_data_%:
-.endmacro
-
-;       For defining constants in eeprom
-;       writes content to eseg, then defines const word with proper eeprom address
-
-;;      name, name-length, routine-name, eep content
-.macro eep_const 
-        def_asm     @0, @1, 0, @2          ; setup header
-        ldi      TOSL, Low(EEPROM_START + eep_link)
-        ldi      TOSH, High(EEPROM_START + eep_link)        
-        jmp      do_const       
-        .set     eep_link = eep_link + 0x02
-
+        .set    eep_link = 0x0000
+.macro def_eep 
+        .set    eep_link = eep_link + 2 ; preincrement bc core is defined manually in ymir.asm
+        def_asm         @0, @1, 0, @2
+                jmp     do_const
+        .dw     EEPROM_START + eep_link
+        
         .eseg 
         .org    eep_link
         .dw     @3
+        
         .cseg 
 .endmacro
 
-        .set     ram_link = 0x0000
-.macro ram_const 
-        def_asm     @0, @1, 0, @2          ; setup header
-        ldi      TOSL, Low(SRAM_START + ram_link)
-        ldi      TOSH, High(SRAM_START + ram_link)        
-        jmp      do_const       
-        .set     eep_link = ram_link + 0x02
-.endmacro
+;; name_string, name_length, subroutine_name, content, content_length 
+.macro def_str 
+        def_word         @0, @1, 0, @2
+                .dw     strlit
+                .db     @4, @3 
+                .dw     done
+.endmacro 
 
+; Stack op shortcuts ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+; underscore before means word (takes two args)
 
 .macro cache_tos 
         _ppop   TOSL, TOSH
         adiw    SL, 0x02 
 .endmacro    
 
-.macro push_tos     ; push TOS
+.macro push_tos     
         _ppush   TOSL, TOSH
 .endmacro 
 
 ;; push word to return stack (for consistency)
 .macro _push
-        push    @0                  
-        push    @1
+        push    @1                  
+        push    @0
 .endmacro 
 .macro _pop
-        pop     @1                  
-        pop     @0
+        pop     @0                  
+        pop     @1
 .endmacro 
 
 ;;      Parameter stack ops
 ;;      input: Rn
 .macro  ppush 
-        st      X+, @0                  ; store and increment pointer
-        st      X+, zero
+        st      X+, zero                ; store and increment pointer
+        st      X+, @0                  
 .endmacro
 
 .macro  ppop
-        sbiw    XL, 0x01                ; load and decrement pointer
-        ld      @0, -X
+        ld      @0, -X                  ; load and decrement pointer
+        sbiw    XL, 0x01                
 .endmacro
 
 ;;      Parameter stack ops
 ;;      input: RL, RH
-.macro _ppop                                     
+.macro _ppop 
+        ld      @0, -X                                    
         ld      @1, -X
-        ld      @0, -X
 .endmacro
 
-.macro  _ppush
-        st      X+, @0              ; store and increment pointer
-        st      X+, @1
+.macro  _ppush  
+        st      X+, @1                  ; store and increment pointer
+        st      X+, @0              
 .endmacro
+
+
+;; CPU op shortcuts ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .macro ccp_spm_unlock               ; write spm signature to config change protection register
         ldi     r16, CPU_CCP_SPM_gc
